@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+</style>
+</head>
+
+<body>
+
+<iframe 
+src="https://html5.gamedistribution.com/rvvASMiM/3ff5df9f5d0248fd9dcd70e2cc253de5/index.html?gd_sdk_referrer_url=https%3A%2F%2Fsnow-rider3d.io%2Fsummer-rider-3d&gd_zone_config=eyJwYXJlbnRVUkwiOiJodHRwczovL3Nub3ctcmlkZXIzZC5pby9zdW1tZXItcmlkZXItM2QiLCJwYXJlbnREb21haW4iOiJzbm93LXJpZGVyM2QuaW8iLCJ0b3BEb21haW4iOiJzbm93LXJpZGVyM2QuaW8iLCJoYXNJbXByZXNzaW9uIjpmYWxzZSwibG9hZGVyRW5hYmxlZCI6dHJ1ZSwiaG9zdCI6Imh0bWw1LmdhbWVkaXN0cmlidXRpb24uY29tIiwidmVyc2lvbiI6IjEuNS4xOCJ9"
+allowfullscreen>
+</iframe>
+
+</body>
+</html>
