@@ -585,10 +585,70 @@
         top: 66px;
         height: 46dvh;
       }
+      .profile-btn{
+position:fixed;
+top:15px;
+right:20px;
+z-index:2000;
+padding:10px 16px;
+border:none;
+border-radius:10px;
+font-weight:bold;
+cursor:pointer;
+background:linear-gradient(135deg,var(--accent-dark),var(--accent));
+color:white;
+}
+
+.profile-popup{
+position:fixed;
+inset:0;
+background:rgba(0,0,0,.6);
+display:none;
+align-items:center;
+justify-content:center;
+z-index:3000;
+}
+
+.profile-box{
+background:#111;
+padding:25px;
+border-radius:15px;
+width:300px;
+}
+
+.profile-box input{
+width:100%;
+margin:6px 0;
+padding:8px;
+border-radius:8px;
+border:none;
+}
+
+.quest-panel{
+position:fixed;
+right:20px;
+top:120px;
+width:200px;
+background:rgba(0,0,0,.7);
+padding:12px;
+border-radius:10px;
+backdrop-filter:blur(6px);
+}
+
+.admin-panel{
+position:fixed;
+bottom:20px;
+right:20px;
+width:220px;
+background:rgba(0,0,0,.8);
+padding:12px;
+border-radius:10px;
+}
     }
   </style>
 <body class="blue">
   <div class="app">
+    <button id="profileBtn" class="profile-btn">👤 Profil</button>
     <button id="menuToggle" class="menu-toggle" onclick="toggleSidebar()" aria-label="Öppna meny" aria-expanded="false">☰</button>
     <div id="sidebarOverlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
 
@@ -701,7 +761,235 @@
     const chatInputEl = document.getElementById("chatInput");
     const chatSendEl = document.getElementById("chatSend");
     const activePlayersEl = document.getElementById("activePlayers"); // NYTT
+// ======= Firebase Users & Profil System =======
+const db = firebase.database();
+let currentUser = null;
 
+// Helper: sanitize
+function sanitizeUsername(v) {
+  return (v||"").replace(/[^a-zA-Z0-9åäöÅÄÖ _-]/g,"").trim().slice(0,20);
+}
+
+// LOGIN
+async function login() {
+  const username = sanitizeUsername(document.getElementById("loginUsername").value);
+  const password = document.getElementById("loginPassword").value;
+  if(!username || !password){ alert("Fyll i användarnamn och lösenord"); return; }
+
+  const userRef = db.ref("users/" + username);
+  const snap = await userRef.get();
+  if(!snap.exists()){ alert("Användare finns ej"); return; }
+
+  const data = snap.val();
+  if(data.password !== password){ alert("Fel lösenord"); return; }
+
+  currentUser = username;
+  showProfile();
+}
+
+// REGISTER
+async function register() {
+  const username = sanitizeUsername(document.getElementById("loginUsername").value);
+  const password = document.getElementById("loginPassword").value;
+  const email = document.getElementById("loginEmail").value;
+
+  if(!username || !password){ alert("Fyll i användarnamn och lösenord"); return; }
+
+  const userRef = db.ref("users/" + username);
+  const snap = await userRef.get();
+  if(snap.exists()){ alert("Användarnamnet är upptaget"); return; }
+
+  await userRef.set({
+    password: password,
+    email: email||"",
+    coins: 0,
+    friends: []
+  });
+
+  currentUser = username;
+  showProfile();
+}
+
+// SHOW PROFILE AFTER LOGIN
+async function showProfile() {
+  if(!currentUser) return;
+
+  document.getElementById("loginArea").style.display="none";
+  document.getElementById("profileArea").style.display="block";
+
+  const userRef = db.ref("users/" + currentUser);
+  const snap = await userRef.get();
+  const data = snap.val();
+
+  document.getElementById("profileName").textContent = currentUser;
+  document.getElementById("profileCoins").textContent = data.coins || 0;
+
+  // Friends
+  const friendList = document.getElementById("friendList");
+  friendList.innerHTML = "";
+  (data.friends||[]).forEach(f=>{
+    const div = document.createElement("div");
+    div.textContent = f;
+    friendList.appendChild(div);
+  });
+
+  // Set chat name
+  chatNameEl.value = currentUser;
+}
+
+// LOGOUT
+function logout() {
+  currentUser = null;
+  document.getElementById("loginArea").style.display="block";
+  document.getElementById("profileArea").style.display="none";
+  chatNameEl.value = `Gäst${Math.floor(1000 + Math.random() * 9000)}`;
+  profilePopup.style.display="none";
+}
+
+// ADD FRIEND
+async function addFriend() {
+  if(!currentUser) return alert("Logga in först");
+
+  const friend = sanitizeUsername(document.getElementById("friendAddInput").value);
+  if(!friend) return;
+
+  if(friend === currentUser) return alert("Du kan inte lägga till dig själv");
+  const friendRef = db.ref("users/" + currentUser + "/friends");
+  const snap = await friendRef.get();
+  const friends = snap.val()||[];
+  if(friends.includes(friend)) return alert("Redan vän");
+
+  friends.push(friend);
+  await friendRef.set(friends);
+  showProfile();
+}
+
+// ===== CHAT FIX: kräver login och unika namn =====
+const chatRefGlobal = db.ref("global-chat");
+
+chatSendEl.addEventListener("click", sendChatMessage);
+chatInputEl.addEventListener("keydown", (e)=>{
+  if(e.key==="Enter") sendChatMessage();
+});
+
+async function sendChatMessage() {
+  if(!currentUser){ alert("Du måste logga in för att chatta"); return; }
+
+  const text = sanitizeText(chatInputEl.value);
+  if(!text) return;
+  if(containsBannedWord(text)){ alert("Innehåller förbjudna ord"); return; }
+
+  chatRefGlobal.push({ name: currentUser, text, ts: Date.now() });
+  chatInputEl.value = "";
+}
+
+// Prevent multiple users with same username
+chatRefGlobal.on("child_added", snap=>{
+  const msg = snap.val()||{};
+  addChatMessage(msg);
+});// ===== QUEST SYSTEM =====
+const quests = [
+  { id: "snowrider15", text: "Spela Snowrider 3D i 15 min", reward: 10, completed: false },
+  { id: "play3games", text: "Spela 3 olika spel", reward: 5, completed: false }
+];
+
+// Render quests
+function renderQuests() {
+  const list = document.getElementById("questList");
+  list.innerHTML = "";
+  quests.forEach(q=>{
+    const div = document.createElement("div");
+    div.textContent = `${q.text} - Belöning: ${q.reward} coins`;
+    div.style.marginBottom="6px";
+    if(q.completed) div.style.textDecoration="line-through";
+    list.appendChild(div);
+  });
+}
+
+// Call initially
+renderQuests();
+
+// Mark quest completed (simplified, demo: click to complete)
+document.getElementById("questList").addEventListener("click", async e=>{
+  if(!currentUser) return alert("Logga in först");
+  const index = Array.from(e.currentTarget.children).indexOf(e.target);
+  if(index<0) return;
+
+  const quest = quests[index];
+  if(quest.completed) return;
+
+  quest.completed = true;
+  // Add coins to user
+  const userRef = db.ref("users/" + currentUser + "/coins");
+  const snap = await userRef.get();
+  const currentCoins = snap.val()||0;
+  await userRef.set(currentCoins + quest.reward);
+  document.getElementById("profileCoins").textContent = currentCoins + quest.reward;
+
+  renderQuests();
+});
+
+// ===== ADMIN PANEL =====
+let adminUnlocked = false;
+
+async function unlockAdmin() {
+  const pass = document.getElementById("adminPassword").value;
+  if(pass !== "SigmaAdminpanel1234"){ alert("Fel lösenord"); return; }
+  adminUnlocked = true;
+  document.getElementById("adminTools").style.display="block";
+}
+
+// Ban user
+async function banUser() {
+  if(!adminUnlocked) return alert("Admin låst");
+  const user = sanitizeUsername(document.getElementById("adminUser").value);
+  if(!user) return;
+  await db.ref("users/" + user + "/banned").set(true);
+  alert(user + " är nu banned");
+}
+
+// Timeout user
+async function timeoutUser() {
+  if(!adminUnlocked) return alert("Admin låst");
+  const user = sanitizeUsername(document.getElementById("adminUser").value);
+  if(!user) return;
+  const timeoutRef = db.ref("users/" + user + "/timeout");
+  await timeoutRef.set(Date.now() + 10*60*1000); // 10 min timeout
+  alert(user + " timeoutad i 10 min");
+}
+
+// Give coins
+async function giveCoins() {
+  if(!adminUnlocked) return alert("Admin låst");
+  const user = sanitizeUsername(document.getElementById("adminUser").value);
+  const amount = parseInt(document.getElementById("coinAmount").value)||0;
+  if(!user || !amount) return;
+  const coinsRef = db.ref("users/" + user + "/coins");
+  const snap = await coinsRef.get();
+  const currentCoins = snap.val()||0;
+  await coinsRef.set(currentCoins + amount);
+  alert(amount + " coins givna till " + user);
+}
+
+// ===== ADMIN CHECK ON LOGIN =====
+async function checkUserBannedTimeout() {
+  if(!currentUser) return;
+  const userRef = db.ref("users/" + currentUser);
+  const snap = await userRef.get();
+  const data = snap.val();
+  if(data?.banned) { alert("Du är banned!"); logout(); }
+  if(data?.timeout && data.timeout > Date.now()) {
+    alert("Du är timeoutad. Försök senare.");
+    logout();
+  }
+}
+
+// Call check on login
+const originalShowProfile = showProfile;
+showProfile = async function() {
+  await originalShowProfile();
+  await checkUserBannedTimeout();
+};
     const firebaseConfig = {
       apiKey: "AIzaSyDRnICpSXjxHQDqhGMZzFGvmcBjJC5RNaw",
       authDomain: "chatt-4d3c7.firebaseapp.com",
@@ -1113,8 +1401,86 @@ function sendChatMessage() {
         activePlayersEl.textContent = "Aktiva spelare: --";
         addSystemChatMessage("Kunde inte ansluta chatten.");
       }
+      
+      const profileBtn = document.getElementById("profileBtn")
+const profilePopup = document.getElementById("profilePopup")
+
+profileBtn.onclick=()=>{
+profilePopup.style.display="flex"
+}
+
+profilePopup.onclick=(e)=>{
+if(e.target===profilePopup) profilePopup.style.display="none"
+}
     })();
   </script>
+  <!-- PROFILE POPUP -->
+<div id="profilePopup" class="profile-popup">
+  <div class="profile-box">
+
+    <h2>👤 Profil</h2>
+
+    <div id="loginArea">
+
+      <input id="loginUsername" placeholder="Användarnamn">
+      <input id="loginPassword" type="password" placeholder="Lösenord">
+      <input id="loginEmail" placeholder="Mail (valfri)">
+
+      <button onclick="login()">Logga in</button>
+      <button onclick="register()">Registrera</button>
+
+    </div>
+
+    <div id="profileArea" style="display:none">
+
+      <h3 id="profileName"></h3>
+      <p>Coins: <span id="profileCoins">0</span></p>
+
+      <input id="friendAddInput" placeholder="Lägg till vän">
+      <button onclick="addFriend()">Lägg till</button>
+
+      <h4>Vänner</h4>
+      <div id="friendList"></div>
+
+      <button onclick="logout()">Logga ut</button>
+
+    </div>
+
+  </div>
+</div>
+
+
+<!-- QUEST PANEL -->
+<div id="questPanel" class="quest-panel">
+
+<h3>🎯 Quests</h3>
+
+<div id="questList"></div>
+
+</div>
+
+
+<!-- ADMIN PANEL -->
+<div id="adminPanel" class="admin-panel">
+
+<h3>🛠 Admin Panel</h3>
+
+<input id="adminPassword" placeholder="Admin lösenord">
+<button onclick="unlockAdmin()">Logga in</button>
+
+<div id="adminTools" style="display:none">
+
+<input id="adminUser" placeholder="Username">
+
+<button onclick="banUser()">Ban</button>
+<button onclick="timeoutUser()">Timeout</button>
+
+<input id="coinAmount" placeholder="Coins">
+<button onclick="giveCoins()">Ge coins</button>
+
+</div>
+
+</div>
 </body>
 </html>
 
