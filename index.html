@@ -585,6 +585,44 @@
         top: 66px;
         height: 46dvh;
       }
+      .discord-btn{
+display:inline-block;
+margin-top:15px;
+padding:14px 22px;
+border-radius:14px;
+font-size:16px;
+font-weight:700;
+text-decoration:none;
+color:white;
+
+background:linear-gradient(135deg,#5865F2,#404EED);
+
+box-shadow:
+0 6px 14px rgba(0,0,0,0.4),
+inset 0 2px 4px rgba(255,255,255,0.15);
+
+transition:
+transform .15s ease,
+box-shadow .15s ease,
+filter .2s ease;
+}
+
+.discord-btn:hover{
+transform:translateY(-3px) scale(1.03);
+filter:brightness(1.1);
+
+box-shadow:
+0 12px 22px rgba(0,0,0,0.55),
+inset 0 2px 6px rgba(255,255,255,0.25);
+}
+
+.discord-btn:active{
+transform:translateY(2px) scale(.97);
+
+box-shadow:
+0 3px 8px rgba(0,0,0,0.45),
+inset 0 3px 6px rgba(0,0,0,0.35);
+}
     }
   </style>
 <body class="blue">
@@ -620,6 +658,7 @@
         <h1>Coola Mattespel V4</h1>
         <p class="subtitle">Cool sida med coola mattespel!</p>
         <p id="activePlayers" class="active-players">Aktiva spelare: ...</p> <!-- NYTT -->
+        <a href="https://discord.gg/vSmcHhqTgv" target="_blank" class="discord-btn">💬 Gå med i Discorden!!</a>
         <div class="search-box">
          <input id="searchInput" placeholder="Sök spel..." oninput="filterGames()" />
         </div>
