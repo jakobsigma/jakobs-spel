@@ -222,7 +222,18 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 /* ---- LADDNINGS-ANIMATION ---- */
 .loader-overlay{position:fixed;inset:0;z-index:99999;background:rgba(6,8,18,.97);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s ease;}.loader-overlay.visible{opacity:1!important;pointer-events:all;}.loader-box{background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:32px 44px;text-align:center;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.7);}.loader-title{font-size:20px;font-weight:800;color:#fff;letter-spacing:-.01em;margin-bottom:18px;}.loader-bar-track{width:100%;height:5px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;margin-bottom:12px;}.loader-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--p2,#3a00b7),var(--p1,#9b4dff),var(--p0,#c084fc));background-size:200% 100%;border-radius:3px;}.loader-bar.going{animation:barGrow 2.6s ease-out forwards;}@keyframes barGrow{0%{width:0%}40%{width:55%}75%{width:82%}100%{width:94%}}.loader-msg{font-size:12px;color:rgba(255,255,255,.45);min-height:16px;}
 
-.browserOverlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;}.browserOverlay.open{display:flex;}.browserWin{width:95vw;height:92vh;max-width:1500px;background:var(--p3);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;transition:all .25s;box-shadow:0 30px 80px rgba(0,0,0,.6);}.aiWin{width:min(720px,92vw);height:min(580px,88vh);max-width:720px;}.browserWin.bfull{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;border-radius:0!important;}.browserBar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--glass);flex-shrink:0;}.browserBar h3{flex:1;margin:0;font-size:14px;font-weight:700;color:var(--w);}.browserBar button{background:none;border:none;color:var(--d);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background .15s;}.browserBar button:hover{background:var(--glass);color:var(--w);}.browserFrame{flex:1;border:none;width:100%;}.panel-fade{animation:panelIn .25s ease;}
+.browserOverlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;}.browserOverlay.open{display:flex;}.browserWin{width:95vw;height:92vh;max-width:1500px;background:var(--p3);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;transition:all .25s;box-shadow:0 30px 80px rgba(0,0,0,.6);}.aiWin{width:min(720px,92vw);height:min(580px,88vh);max-width:720px;}.browserWin.bfull{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;border-radius:0!important;}.browserBar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--glass);flex-shrink:0;}.browserBar h3{flex:1;margin:0;font-size:14px;font-weight:700;color:var(--w);}.browserBar button{background:none;border:none;color:var(--d);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background .15s;}.browserBar button:hover{background:var(--glass);color:var(--w);}.browserFrame{flex:1;border:none;width:100%;}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px;}
+.profile-card{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:16px;}
+.profile-card h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--d);margin-bottom:12px;}
+.profile-stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.p-stat{flex:1;min-width:80px;background:var(--glass);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;}
+.p-stat span{display:block;font-size:18px;font-weight:800;color:var(--w);}
+.p-stat small{font-size:10px;color:var(--d);}
+.friend-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:rgba(255,255,255,.03);margin-bottom:6px;}
+.friend-name{flex:1;font-size:13px;font-weight:600;}
+.user-search-row{display:flex;gap:8px;margin-bottom:10px;}
+.user-search-row input{flex:1;}
+.panel-fade{animation:panelIn .25s ease;}
 @keyframes panelIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
 /* Game frame loading */
 .game-loader{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:2;}
@@ -278,11 +289,11 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
       <span>🪙</span><span id="coinDisplay">0</span>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-      <span class="levelBadge" id="levelDisplay">Nivå 1</span>
+      <span class="levelBadge" id="levelDisplay">Level 1</span>
       <div class="xpBar"><div class="xpBarFill" id="xpFill" style="width:0%"></div></div>
     </div>
-    <button class="pill ghost" id="loginBtn" onclick="openLoginModal(false)">🔐 Logga in</button>
-    <div id="userInfo" style="display:none;align-items:center;gap:8px;cursor:pointer" onclick="openSidebar();setTimeout(function(){switchSideTab('profil');},60)">
+    <button class="pill ghost" id="loginBtn" onclick="openLoginModal(false)" data-i18n-title="loginTitle">🔐 <span data-i18n="loginBtn">Log in</span></button>
+    <div id="userInfo" style="display:none;align-items:center;gap:8px;cursor:pointer" onclick="openProfileOverlay()">
       <div id="userAvatarDisplay" style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--p2),var(--p0));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid var(--p1);overflow:hidden;"></div>
       <span style="font-size:12px;color:var(--m);font-weight:700;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="userNameDisplay"></span>
     </div>
@@ -384,9 +395,9 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 </div>
 
 <!-- Profile View Overlay -->
-<div class="panelOverlay" id="profileOverlay" onclick="if(event.target===this)closePanelOverlay('profile')">
-  <div class="panelWin" style="width:min(380px,95vw)">
-    <div class="panelHead"><h3 id="profileOverlayTitle">👤 Profil</h3><button class="closeBtn" onclick="closePanelOverlay('profile')">✕</button></div>
+<div class="panelOverlay" id="profileOverlay" style="display:none" onclick="if(event.target===this)closeProfileOverlay()">
+  <div class="panelWin" style="width:min(740px,96vw);max-height:90vh;">
+    <div class="panelHead"><h3 id="profileOverlayTitle">👤 Profil</h3><button class="closeBtn" onclick="closeProfileOverlay()">✕</button></div>
     <div class="panelBody" id="profileOverlayBody" style="text-align:center;padding:24px 18px"></div>
   </div>
 </div>
@@ -534,7 +545,9 @@ function applyDarkMode(isDark){
 /* ---- LOADER ---- */
 var _loaderMsgs=["Laddar pixlar...","Kompilerar drömmar...","Värmer upp konsolerna...","Hackar matrisen...","Laddar hemliga nivåer...","Synkroniserar med servrar...","Initierar spellogik...","Förbereder episka upplevelser...","Dekrypterar mysterier...","Kalibrerar dimensioner...","Aktiverar cheat codes...","Söker easter eggs...","Buffrar verkligheten...","Laddade nivå ∞...","Kopierar universum..."];
 var _loaderMsgInterval=null;
+var _loaderShownAt=0;
 function showLoader(title){
+  _loaderShownAt=Date.now();
   var o=document.getElementById("loaderOverlay");
   var bar=document.getElementById("loaderBar");
   var msg=document.getElementById("loaderMsg");
@@ -550,11 +563,13 @@ function showLoader(title){
   }
 }
 function hideLoader(){
+  var elapsed=Date.now()-_loaderShownAt;
+  var wait=Math.max(0,1400-elapsed);
   if(_loaderMsgInterval){clearInterval(_loaderMsgInterval);_loaderMsgInterval=null;}
   var o=document.getElementById("loaderOverlay");
   var bar=document.getElementById("loaderBar");
   var msg=document.getElementById("loaderMsg");
-  if(bar){bar.style.transition="width .25s";bar.style.width="100%";}
+  if(bar){bar.style.transition="width .3s";bar.style.width="100%";}
   setTimeout(function(){
     if(o)o.classList.remove("visible");
     if(msg)msg.classList.remove("visible");
@@ -610,6 +625,110 @@ function toggleBrowserFull(){
   if(!win)return;
   win.classList.toggle('bfull');
   if(btn)btn.textContent=win.classList.contains('bfull')?'⤓':'⛶';
+}
+function openProfileOverlay(){
+  var ov=document.getElementById('profileOverlay');
+  if(!ov)return;
+  ov.style.display='flex';
+  setTimeout(function(){ov.classList.add('open');},10);
+  renderProfileOverlay();
+}
+function renderProfileOverlay(){
+  var el=document.getElementById('profileOverlayBody');
+  if(!el)return;
+  if(!state.user){
+    el.innerHTML='<div style="padding:32px;text-align:center">'
+      +'<div style="font-size:48px;margin-bottom:16px">👤</div>'
+      +'<p style="color:var(--d);margin-bottom:16px">'+T('notLoggedFavs')+'</p>'
+      +'<button class="pill primary" onclick="closeProfileOverlay();openLoginModal(false)" style="padding:10px 28px">'+T('loginBtn')+'</button>'
+      +'</div>';
+    return;
+  }
+  var av=localStorage.getItem('avatar_'+state.user)||'';
+  var favs=state.favorites.length;
+  var played=state.gamesPlayed||0;
+  var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+  el.innerHTML='<div class="profile-grid">'
+    // LEFT COLUMN - account info
+    +'<div>'
+      +'<div class="profile-card" style="text-align:center;margin-bottom:12px">'
+        +(av?'<img src="'+av+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--p1);margin-bottom:10px">':'<div style="width:80px;height:80px;border-radius:50%;background:var(--glass);border:3px solid var(--p1);display:inline-flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:10px">👤</div>')
+        +'<div style="font-weight:800;font-size:18px;color:var(--w)">'+state.user+'</div>'
+        +'<div style="font-size:12px;color:var(--d)">'+T('stat_level')+' '+state.level+'</div>'
+      +'</div>'
+      +'<div class="profile-card" style="margin-bottom:12px">'
+        +'<h4>'+T('sett_account')+'</h4>'
+        +'<div class="profile-stat-row">'
+          +'<div class="p-stat"><span>'+state.coins+'</span><small>'+T('stat_coins')+'</small></div>'
+          +'<div class="p-stat"><span>'+favs+'</span><small>'+T('stat_favs')+'</small></div>'
+          +'<div class="p-stat"><span>'+played+'</span><small>'+T('stat_played')+'</small></div>'
+        +'</div>'
+        +'<button class="pill ghost" onclick="closeProfileOverlay();doLogout()" style="width:100%;justify-content:center;margin-top:4px">'+T('sett_logout')+'</button>'
+      +'</div>'
+    +'</div>'
+    // RIGHT COLUMN - friends
+    +'<div>'
+      +'<div class="profile-card" style="margin-bottom:12px">'
+        +'<h4>👥 Friends</h4>'
+        +'<div class="user-search-row">'
+          +'<input type="text" id="friendInput" class="formInput" placeholder="Add friend by username..." style="font-size:12px;padding:8px 10px">'
+          +'<button class="pill primary" style="padding:8px 14px;font-size:12px" onclick="addFriend()">Add</button>'
+        +'</div>'
+        +'<div id="friendsList">'
+          +(friends.length?friends.map(function(f){return '<div class="friend-row"><span class="friend-name">'+f+'</span><button class="pill ghost" style="font-size:11px;padding:4px 10px" onclick="removeFriend(''+f+'')">Remove</button></div>';}).join(''):'<p style="color:var(--d);font-size:12px">No friends yet. Add one above!</p>')
+        +'</div>'
+      +'</div>'
+      +'<div class="profile-card">'
+        +'<h4>🔍 Browse Profiles</h4>'
+        +'<div class="user-search-row">'
+          +'<input type="text" id="profileSearchInput" class="formInput" placeholder="Search username..." style="font-size:12px;padding:8px 10px" oninput="searchProfiles(this.value)">'
+        +'</div>'
+        +'<div id="profileSearchResults"><p style="color:var(--d);font-size:12px">Type to search users...</p></div>'
+      +'</div>'
+    +'</div>'
+  +'</div>';
+}
+function closeProfileOverlay(){
+  var ov=document.getElementById('profileOverlay');
+  if(ov){ov.classList.remove('open');setTimeout(function(){ov.style.display='none';},250);}
+}
+function addFriend(){
+  var inp=document.getElementById('friendInput');
+  if(!inp)return;
+  var name=inp.value.trim();
+  if(!name||name===state.user){return;}
+  var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+  if(friends.indexOf(name)<0){friends.push(name);localStorage.setItem('friends_'+state.user,JSON.stringify(friends));}
+  inp.value='';renderProfileOverlay();
+}
+function removeFriend(name){
+  var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+  friends=friends.filter(function(f){return f!==name;});
+  localStorage.setItem('friends_'+state.user,JSON.stringify(friends));
+  renderProfileOverlay();
+}
+function searchProfiles(q){
+  var el=document.getElementById('profileSearchResults');
+  if(!el)return;
+  if(!q||q.length<2){el.innerHTML='<p style="color:var(--d);font-size:12px">Type to search users...</p>';return;}
+  if(!_sb){el.innerHTML='<p style="color:var(--d);font-size:12px">Not available offline</p>';return;}
+  _sb.from('accounts').select('username,is_admin').ilike('username','%'+q+'%').limit(8).then(function(res){
+    if(!res.data||!res.data.length){el.innerHTML='<p style="color:var(--d);font-size:12px">No users found</p>';return;}
+    el.innerHTML=res.data.map(function(u){
+      var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+      var isFriend=friends.indexOf(u.username)>=0;
+      return '<div class="friend-row">'
+        +'<span class="friend-name">'+(u.is_admin?'🛡 ':'')+u.username+'</span>'
+        +(state.user&&u.username!==state.user?'<button class="pill ghost" style="font-size:11px;padding:4px 10px" onclick="'+(isFriend?'removeFriend':'addFriendDirect')+'(''+u.username+'')">'+(isFriend?'✓ Friend':'+ Add')+'</button>':'')
+        +'</div>';
+    }).join('');
+  });
+}
+function addFriendDirect(name){
+  var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+  if(friends.indexOf(name)<0){friends.push(name);localStorage.setItem('friends_'+state.user,JSON.stringify(friends));}
+  var q=document.getElementById('profileSearchInput');
+  if(q)searchProfiles(q.value);
 }
 function openDiscord(){
   showLoader('Discord');
@@ -1172,7 +1291,7 @@ document.addEventListener("DOMContentLoaded",function(){
     _presenceCh.on('presence',{event:'sync'},function(){
       var n=Object.keys(_presenceCh.presenceState()).length;
       var el=document.getElementById('onlineCount');
-      if(el)el.textContent=n+' online nu';
+      if(el)el.textContent=n+' '+(T('online')||'online');
     }).subscribe(function(status){
       if(status==='SUBSCRIBED')_presenceCh.track({t:Date.now()});
     });
@@ -1203,7 +1322,7 @@ en:{heroTitle:"Jakob's Game Library",pill_games:"🎮 1,946 games",pill_coins:"�
   switchToReg:"No account? Register",switchToLogin:"Have an account? Log in",
   noFavs:"No favorites yet\nClick ☆ on a game",notLoggedFavs:"Log in to see favorites",
   colors_purple:"Purple",colors_neon:"Neon",colors_gold:"Gold",
-  colors_red:"Red",colors_blue:"Blue",colors_pink:"Pink"},
+  colors_red:"Red",colors_blue:"Blue",colors_pink:"Pink",online:"online now"},
 
 sv:{heroTitle:"Jakobs Spelbibliotek",pill_games:"🎮 1 946 spel",pill_coins:"🏆 Samla mynt",
   pill_favs:"⭐ Spara favoriter",pill_quests:"📋 Slutför quests",allGames:"Alla spel",
@@ -1223,7 +1342,7 @@ sv:{heroTitle:"Jakobs Spelbibliotek",pill_games:"🎮 1 946 spel",pill_coins:"�
   switchToReg:"Inget konto? Registrera",switchToLogin:"Har konto? Logga in",
   noFavs:"Inga favoriter än\nKlicka ☆ på ett spel",notLoggedFavs:"Logga in för att se favoriter",
   colors_purple:"Lila",colors_neon:"Neon",colors_gold:"Guld",
-  colors_red:"Röd",colors_blue:"Blå",colors_pink:"Rosa"},
+  colors_red:"Röd",colors_blue:"Blå",colors_pink:"Rosa",online:"online nu"},
 
 es:{heroTitle:"Biblioteca de Juegos de Jakob",pill_games:"🎮 1.946 juegos",pill_coins:"🏆 Coleccionar monedas",
   pill_favs:"⭐ Guardar favoritos",pill_quests:"📋 Completar misiones",allGames:"Todos los juegos",
@@ -1243,7 +1362,7 @@ es:{heroTitle:"Biblioteca de Juegos de Jakob",pill_games:"🎮 1.946 juegos",pil
   switchToReg:"¿Sin cuenta? Regístrate",switchToLogin:"¿Ya tienes cuenta? Entra",
   noFavs:"Sin favoritos aún\nHaz clic en ☆ de un juego",notLoggedFavs:"Inicia sesión para ver favoritos",
   colors_purple:"Morado",colors_neon:"Neón",colors_gold:"Dorado",
-  colors_red:"Rojo",colors_blue:"Azul",colors_pink:"Rosa"},
+  colors_red:"Rojo",colors_blue:"Azul",colors_pink:"Rosa",online:"en línea"},
 
 fr:{heroTitle:"Bibliothèque de Jeux de Jakob",pill_games:"🎮 1 946 jeux",pill_coins:"🏆 Collecter des pièces",
   pill_favs:"⭐ Sauvegarder les favoris",pill_quests:"📋 Compléter des quêtes",allGames:"Tous les jeux",
@@ -1263,7 +1382,7 @@ fr:{heroTitle:"Bibliothèque de Jeux de Jakob",pill_games:"🎮 1 946 jeux",pill
   switchToReg:"Pas de compte ? S'inscrire",switchToLogin:"Déjà un compte ? Se connecter",
   noFavs:"Pas encore de favoris\nCliquez ☆ sur un jeu",notLoggedFavs:"Connectez-vous pour voir les favoris",
   colors_purple:"Violet",colors_neon:"Néon",colors_gold:"Or",
-  colors_red:"Rouge",colors_blue:"Bleu",colors_pink:"Rose"},
+  colors_red:"Rouge",colors_blue:"Bleu",colors_pink:"Rose",online:"en ligne"},
 
 de:{heroTitle:"Jakobs Spielbibliothek",pill_games:"🎮 1 946 Spiele",pill_coins:"🏆 Münzen sammeln",
   pill_favs:"⭐ Favoriten speichern",pill_quests:"📋 Quests abschließen",allGames:"Alle Spiele",
@@ -1283,7 +1402,7 @@ de:{heroTitle:"Jakobs Spielbibliothek",pill_games:"🎮 1 946 Spiele",pill_coins
   switchToReg:"Kein Konto? Registrieren",switchToLogin:"Konto vorhanden? Anmelden",
   noFavs:"Noch keine Favoriten\nKlicken Sie ☆ bei einem Spiel",notLoggedFavs:"Anmelden um Favoriten zu sehen",
   colors_purple:"Lila",colors_neon:"Neon",colors_gold:"Gold",
-  colors_red:"Rot",colors_blue:"Blau",colors_pink:"Pink"},
+  colors_red:"Rot",colors_blue:"Blau",colors_pink:"Pink",online:"online"},
 
 ru:{heroTitle:"Игровая Библиотека Якоба",pill_games:"🎮 1 946 игр",pill_coins:"🏆 Собирать монеты",
   pill_favs:"⭐ Сохранять избранное",pill_quests:"📋 Выполнять задания",allGames:"Все игры",
@@ -1303,7 +1422,7 @@ ru:{heroTitle:"Игровая Библиотека Якоба",pill_games:"🎮 
   switchToReg:"Нет аккаунта? Зарегистрироваться",switchToLogin:"Есть аккаунт? Войти",
   noFavs:"Избранных нет\nНажмите ☆ на игру",notLoggedFavs:"Войдите чтобы увидеть избранное",
   colors_purple:"Фиолетовый",colors_neon:"Неон",colors_gold:"Золотой",
-  colors_red:"Красный",colors_blue:"Синий",colors_pink:"Розовый"},
+  colors_red:"Красный",colors_blue:"Синий",colors_pink:"Розовый",online:"онлайн"},
 
 zh:{heroTitle:"雅各布的游戏库",pill_games:"🎮 1,946个游戏",pill_coins:"🏆 收集金币",
   pill_favs:"⭐ 保存收藏",pill_quests:"📋 完成任务",allGames:"所有游戏",
@@ -1323,7 +1442,7 @@ zh:{heroTitle:"雅各布的游戏库",pill_games:"🎮 1,946个游戏",pill_coin
   switchToReg:"没有账户？注册",switchToLogin:"已有账户？登录",
   noFavs:"暂无收藏\n点击游戏上的☆",notLoggedFavs:"登录以查看收藏",
   colors_purple:"紫色",colors_neon:"霓虹",colors_gold:"金色",
-  colors_red:"红色",colors_blue:"蓝色",colors_pink:"粉色"}
+  colors_red:"红色",colors_blue:"蓝色",colors_pink:"粉色",online:"在线"}
 };
 
 function T(key){
