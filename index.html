@@ -581,25 +581,22 @@ function openPanelOverlay(name){
   }
 }
 function openBrowser(type){
-  var overlay=document.getElementById('browserOverlay');
-  var frame=document.getElementById('browserFrame');
-  var title=document.getElementById('browserTitle');
-  if(!overlay)return;
-  var win=document.getElementById('browserWin');
-  if(type==='ai'){
-    if(title)title.textContent='🤖 Jakob AI';
-    frame.src='UGS-Files/jakobai.html';
-    if(win)win.classList.add('aiWin');
-  } else {
-    if(title)title.textContent='🌐 Browser';
-    if(win)win.classList.remove('aiWin');
-    frame.src='UGS-Files/browser.html';
-  }
-  overlay.classList.add('open');
-  document.getElementById('browserWin').classList.remove('bfull');
-  var bTitle=(type==='ai'?'Jakob AI':'Browser');
-  showLoader(bTitle);
-  frame.onload=function(){hideLoader();frame.onload=null;};
+  var bTitle=(type==='ai'?'🤖 Jakob AI':'🌐 Browser');
+  showLoader(type==='ai'?'Jakob AI':'Browser');
+  setTimeout(function(){
+    var overlay=document.getElementById('browserOverlay');
+    var frame=document.getElementById('browserFrame');
+    var titleEl=document.getElementById('browserTitle');
+    var win=document.getElementById('browserWin');
+    if(!overlay)return;
+    if(titleEl)titleEl.textContent=bTitle;
+    if(win)win.classList.remove('bfull');
+    if(type==='ai'){if(win)win.classList.add('aiWin');}
+    else{if(win)win.classList.remove('aiWin');}
+    overlay.classList.add('open');
+    frame.onload=function(){hideLoader();frame.onload=null;};
+    frame.src=(type==='ai'?'UGS-Files/jakobai.html':'UGS-Files/browser.html');
+  },80);
 }
 function closeBrowser(){
   var overlay=document.getElementById('browserOverlay');
@@ -623,7 +620,7 @@ function openDiscord(){
     var top=Math.round(screen.height/2-h/2);
     window.open('https://mescord.jakobb.se','mescord',
       'width='+w+',height='+h+',left='+left+',top='+top+',resizable=yes,scrollbars=yes');
-  },400);
+  },1000);
 }
 function closePanelOverlay(name){
   var ov=document.getElementById(name+"Overlay");
@@ -702,7 +699,7 @@ function unlockGame(idx){
   ul.push(idx);localStorage.setItem("unlocked_"+state.user,JSON.stringify(ul));
   saveState();updateHUD();toast("Spel upplåst!");renderGames();
 }
-function openGame(i){var g=GAMES[i];if(!g)return;if(gameIsLocked(i)){toast('Lås upp spelet i butiken!','error');return;}document.getElementById('gameTitle').textContent=g.name.replace(/^cl/i,'').trim();showLoader('Loading '+g.name.replace(/^cl/i,'').trim());document.getElementById('gameOverlay').style.display='flex';var fr=document.getElementById('gameFrame');if(fr){fr.onload=function(){hideLoader();fr.onload=null;};fr.src='UGS-Files/'+g.f;}addCoins(1);var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');var today=new Date().toDateString();if(!recent.find(function(r){return r.f===g.f&&r.date===today;})){recent.unshift({f:g.f,name:g.name,date:today});if(recent.length>50)recent.pop();localStorage.setItem('recentGames',JSON.stringify(recent));state.gamesPlayed=(state.gamesPlayed||0)+1;}window._gameStartTime=Date.now();updateQuests();saveState();}
+function openGame(i){var g=GAMES[i];if(!g)return;if(gameIsLocked(i)){toast('Lås upp spelet i butiken!','error');return;}var gName=g.name.replace(/^cl/i,'').trim();showLoader('Loading '+gName);setTimeout(function(){  document.getElementById('gameTitle').textContent=gName;  document.getElementById('gameOverlay').style.display='flex';  var fr=document.getElementById('gameFrame');  if(fr){fr.onload=function(){hideLoader();fr.onload=null;};fr.src='UGS-Files/'+g.f;}},80);addCoins(1);var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');var today=new Date().toDateString();if(!recent.find(function(r){return r.f===g.f&&r.date===today;})){recent.unshift({f:g.f,name:g.name,date:today});if(recent.length>50)recent.pop();localStorage.setItem('recentGames',JSON.stringify(recent));state.gamesPlayed=(state.gamesPlayed||0)+1;}window._gameStartTime=Date.now();updateQuests();saveState();}
 function closeGame(){var fr=document.getElementById('gameFrame');if(fr)fr.src='about:blank';document.getElementById('gameOverlay').style.display='none';if(window._gameStartTime){var mins=Math.floor((Date.now()-window._gameStartTime)/60000);if(mins>0){var today=new Date().toDateString();var key='playtime_'+state.user+'_'+today;var old=parseInt(localStorage.getItem(key)||'0');localStorage.setItem(key,old+mins);updateQuests();}window._gameStartTime=null;}}
 function goFullscreen(){
   var fr=document.getElementById("gameFrame");
