@@ -261,6 +261,30 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 .name-galaxy{background:linear-gradient(135deg,#7b2cff,#b56cff,#00e5ff) !important;-webkit-background-clip:text !important;-webkit-text-fill-color:transparent !important;background-clip:text !important;}
 .name-rainbow{background:linear-gradient(90deg,#ff0080,#ff8c00,#ffd700,#00ff00,#00e5ff,#7b2cff) !important;-webkit-background-clip:text !important;-webkit-text-fill-color:transparent !important;background-clip:text !important;background-size:200% !important;}
 
+
+/* ---- WINDOWS-STYLE APP CHROME ---- */
+.winBar{display:flex;align-items:center;height:44px;padding:0 8px 0 14px;background:var(--glass);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);flex-shrink:0;user-select:none;cursor:move;}
+.winBar-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--w);flex:1;pointer-events:none;}
+.winBar-icon{font-size:16px;}
+.winBar-controls{display:flex;gap:4px;align-items:center;cursor:default;}
+.winBtn{width:32px;height:28px;border-radius:6px;border:none;background:transparent;color:var(--d);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s,color .1s;font-family:inherit;}
+.winBtn:hover{background:rgba(255,255,255,.12);color:var(--w);}
+.winBtn.wClose:hover{background:#c42b1c;color:#fff;}
+
+/* ---- INVENTORY APP WINDOW ---- */
+.appOverlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px);}
+.appOverlay.open{display:flex;}
+.appWin{background:var(--bg1);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 32px 90px rgba(0,0,0,.7);resize:both;min-width:320px;min-height:300px;}
+#inventoryWin{width:min(440px,95vw);height:min(580px,90vh);}
+.appBody{flex:1;overflow-y:auto;padding:12px;}
+.appBody::-webkit-scrollbar{width:4px;}
+.appBody::-webkit-scrollbar-thumb{background:var(--p2);border-radius:2px;}
+
+/* Dragging state — make all existing window titlebars draggable */
+.browserBar{cursor:move;}
+.panelWin .panelHead{cursor:move;}
+.pc-banner{cursor:move;}
+
 /* Cursor pulse ring */
 .cookieBanner{position:fixed;bottom:0;left:0;right:0;z-index:88888;background:var(--bg1);border-top:1px solid var(--line);padding:14px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;backdrop-filter:blur(20px);transform:translateY(0);transition:transform .3s ease;}.cookieBanner.hidden{transform:translateY(100%);pointer-events:none;}.cookieBanner p{flex:1;font-size:13px;color:var(--m);min-width:200px;}.cookieBanner .cookieBtns{display:flex;gap:8px;flex-shrink:0;}.changelog-entry{border-left:3px solid var(--p1);padding-left:16px;margin-bottom:18px;}.changelog-version{font-size:18px;font-weight:900;color:var(--w);}.changelog-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;}.changelog-title{font-size:13px;font-weight:700;color:var(--w);margin-bottom:6px;}.changelog-item{font-size:12px;color:var(--d);padding:2px 0;display:flex;gap:6px;}.cursor-ring{position:fixed;width:28px;height:28px;border:2px solid rgba(123,44,255,.5);border-radius:50%;pointer-events:none;z-index:99999;transform:translate(-50%,-50%);transition:width .15s,height .15s,opacity .2s;opacity:0;}
 .cursor-ring.visible{opacity:1;}
@@ -269,7 +293,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 /* ---- LADDNINGS-ANIMATION ---- */
 .loader-overlay{position:fixed;inset:0;z-index:99999;background:var(--bg0);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s ease;}.loader-overlay.visible{opacity:1!important;pointer-events:all;}.loader-box{background:var(--bg1);border:1px solid var(--line);border-radius:14px;padding:32px 44px;text-align:center;width:420px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.7);}.loader-title{font-size:20px;font-weight:800;color:var(--w);letter-spacing:-.01em;margin-bottom:18px;}.loader-bar-track{width:100%;height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-bottom:12px;}.loader-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--p2,#3a00b7),var(--p1,#9b4dff),var(--p0,#c084fc));background-size:200% 100%;border-radius:3px;}.loader-bar.going{animation:barGrow 2.6s ease-out forwards;}@keyframes barGrow{0%{width:0%}40%{width:55%}75%{width:82%}100%{width:94%}}.loader-msg{font-size:12px;color:var(--d);min-height:16px;}
 
-.browserOverlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;}.browserOverlay.open{display:flex;}.browserWin{width:95vw;height:92vh;max-width:1500px;background:var(--bg1);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;transition:all .25s;box-shadow:0 30px 80px rgba(0,0,0,.6);}.aiWin{width:min(700px,92vw);height:min(700px,92vh);max-width:700px;}.browserWin.bfull{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;border-radius:0!important;}.browserBar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--glass);flex-shrink:0;}.browserBar h3{flex:1;margin:0;font-size:14px;font-weight:700;color:var(--w);}.browserBar button{background:none;border:none;color:var(--d);font-size:16px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background .15s;}.browserBar button:hover{background:var(--glass);color:var(--w);}.browserFrame{flex:1;border:none;width:100%;}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px;}
+.browserOverlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;}.browserOverlay.open{display:flex;}.browserWin{width:95vw;height:92vh;max-width:1500px;background:var(--bg1);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;transition:all .25s;box-shadow:0 30px 80px rgba(0,0,0,.6);}.aiWin{width:min(700px,92vw);height:min(700px,92vh);max-width:700px;}.browserWin.bfull{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;border-radius:0!important;}.browserBar{display:flex;align-items:center;gap:10px;padding:0 8px 0 14px;height:44px;border-bottom:1px solid var(--line);background:var(--glass);flex-shrink:0;}.browserBar h3{flex:1;margin:0;font-size:14px;font-weight:700;color:var(--w);}.browserBar button{background:none;border:none;color:var(--d);font-size:13px;cursor:pointer;width:32px;height:28px;border-radius:6px;transition:background .15s,color .15s;display:flex;align-items:center;justify-content:center;}.browserBar button:hover{background:rgba(255,255,255,.12);color:var(--w);}.browserBar button.bclose:hover{background:#c42b1c;color:#fff;}.browserFrame{flex:1;border:none;width:100%;}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px;}
 .profile-card{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:16px;}
 .profile-card h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--d);margin-bottom:12px;}
 .profile-stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
@@ -386,7 +410,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
     <button class="sideNavBtn" data-tab="discord" onclick="openDiscord()"><span class="sideNavIcon">🟣</span><span class="sideNavLabel">Discord</span></button>
     <button class="sideNavBtn" onclick="openBrowser('browser')"><span class="sideNavIcon">🌐</span><span class="sideNavLabel">Browser</span></button>
     <button class="sideNavBtn" onclick="openBrowser('ai')"><span class="sideNavIcon">🤖</span><span class="sideNavLabel">Jakob AI</span></button>
-    <button class="sideNavBtn" data-tab="inventory" onclick="switchSideTab('inventory')"><span class="sideNavIcon">🎒</span><span class="sideNavLabel">Inventarium</span></button>
+    <button class="sideNavBtn" onclick="closeSidebar();openInventoryWindow()"><span class="sideNavIcon">🎒</span><span class="sideNavLabel">Inventory</span></button>
     <button class="sideNavBtn" data-tab="updates" onclick="openUpdatesPage()"><span class="sideNavIcon">📢</span><span class="sideNavLabel">Updates</span></button>
     <button class="sideNavBtn" id="adminNav" data-tab="admin" onclick="openPanelOverlay('admin')" style="display:none"><span class="sideNavIcon">🛡</span><span class="sideNavLabel" data-i18n="nav_admin">Admin</span></button>
   </nav>
@@ -426,6 +450,18 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 
 <div class="viewProfileOverlay" id="viewProfileOverlay" onclick="if(event.target===this)closeViewProfile()">
   <div class="profileCard" id="profileCard"></div>
+</div>
+
+<div class="appOverlay" id="inventoryOverlay" onclick="if(event.target===this)closeInventoryWindow()">
+  <div class="appWin" id="inventoryWin">
+    <div class="winBar" id="inventoryWinBar">
+      <div class="winBar-title"><span class="winBar-icon">🎒</span> Inventory</div>
+      <div class="winBar-controls">
+        <button class="winBtn wClose" onclick="closeInventoryWindow()" title="Stäng">✕</button>
+      </div>
+    </div>
+    <div class="appBody" id="inventoryWinBody"></div>
+  </div>
 </div>
 
 <div class="gameOverlay" id="gameOverlay">
@@ -749,6 +785,7 @@ function closeBrowser(){
   if(overlay)overlay.classList.remove('open');
   var frame=document.getElementById('browserFrame');
   if(frame)frame.src='';
+  var bw=document.getElementById('browserWin');if(bw)_resetWinPos(bw);
 }
 function toggleBrowserFull(){
   var win=document.getElementById('browserWin');
@@ -840,7 +877,7 @@ function openDiscord(){
 }
 function closePanelOverlay(name){
   var ov=document.getElementById(name+"Overlay");
-  if(ov)ov.classList.remove("open");
+  if(ov){var pw=ov.querySelector('.panelWin');if(pw)_resetWinPos(pw);ov.classList.remove("open");}
   document.body.style.overflow="";
 }
 
@@ -1757,6 +1794,107 @@ function _renderProfileCard(card,username){
 
 /* ---- UPDATED PROFILE PANEL (sidebar) ---- */
 
+
+/* ---- DRAGGABLE WINDOWS ---- */
+var _drag=null;
+function makeDraggable(win,handle){
+  handle.addEventListener('mousedown',function(e){
+    if(e.button!==0)return;
+    if(e.target.closest('button,input,select,a,iframe'))return;
+    var r=win.getBoundingClientRect();
+    /* Detach from flex centering → explicit fixed position */
+    win.style.position='fixed';
+    win.style.left=r.left+'px';
+    win.style.top=r.top+'px';
+    win.style.margin='0';
+    win.style.transform='none';
+    _drag={win:win,ox:e.clientX-r.left,oy:e.clientY-r.top};
+    document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  /* Touch support */
+  handle.addEventListener('touchstart',function(e){
+    if(e.target.closest('button,input,a'))return;
+    var t=e.touches[0];
+    var r=win.getBoundingClientRect();
+    win.style.position='fixed';win.style.left=r.left+'px';win.style.top=r.top+'px';
+    win.style.margin='0';win.style.transform='none';
+    _drag={win:win,ox:t.clientX-r.left,oy:t.clientY-r.top};
+    e.preventDefault();
+  },{passive:false});
+}
+document.addEventListener('mousemove',function(e){
+  if(!_drag)return;
+  var nx=Math.max(0,Math.min(window.innerWidth-120,e.clientX-_drag.ox));
+  var ny=Math.max(0,Math.min(window.innerHeight-44,e.clientY-_drag.oy));
+  _drag.win.style.left=nx+'px';_drag.win.style.top=ny+'px';
+});
+document.addEventListener('touchmove',function(e){
+  if(!_drag)return;
+  var t=e.touches[0];
+  var nx=Math.max(0,Math.min(window.innerWidth-120,t.clientX-_drag.ox));
+  var ny=Math.max(0,Math.min(window.innerHeight-44,t.clientY-_drag.oy));
+  _drag.win.style.left=nx+'px';_drag.win.style.top=ny+'px';
+  e.preventDefault();
+},{passive:false});
+document.addEventListener('mouseup',function(){if(_drag){document.body.style.userSelect='';_drag=null;}});
+document.addEventListener('touchend',function(){_drag=null;});
+function _resetWinPos(win){
+  win.style.position='';win.style.left='';win.style.top='';
+  win.style.margin='';win.style.transform='';
+}
+
+/* ---- INVENTORY APP WINDOW ---- */
+function openInventoryWindow(){
+  var ov=document.getElementById('inventoryOverlay');
+  if(!ov)return;
+  _resetWinPos(document.getElementById('inventoryWin'));
+  ov.style.display='flex';
+  setTimeout(function(){ov.classList.add('open');renderInventoryWin();},10);
+}
+function closeInventoryWindow(){
+  var ov=document.getElementById('inventoryOverlay');
+  if(ov){ov.classList.remove('open');setTimeout(function(){ov.style.display='none';},200);}
+}
+function renderInventoryWin(){
+  var el=document.getElementById('inventoryWinBody');if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:32px;text-align:center;font-size:13px'>Logga in för att se ditt inventory</p>";return;}
+  var owned=JSON.parse(localStorage.getItem('owned_'+state.user)||'[]');
+  var eq=getEquipped();
+  var cats={frame:'Profil Ramar 🖼️',badge:'Badges 🏷️',nameeffect:'Namn Effekter ✍️',effect:'Profil Effekter 💫'};
+  var h='<div style="padding:4px 0">';
+  h+='<div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">';
+  h+='<span style="font-size:13px;font-weight:700">🎒 Mitt Inventory</span>';
+  h+='<span style="font-size:12px;color:var(--d)">'+owned.length+' saker</span></div>';
+  var byType={frame:[],badge:[],nameeffect:[],effect:[]};
+  owned.forEach(function(id){var d=SHOP_ITEMS_DATA[id];if(d&&byType[d.type])byType[d.type].push(id);});
+  var hasAny=false;
+  Object.keys(cats).forEach(function(type){
+    var items=byType[type];if(!items.length)return;
+    hasAny=true;
+    h+='<div style="font-size:10px;color:var(--d);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">'+cats[type]+'</div>';
+    h+='<div class="inv-grid">';
+    items.forEach(function(id){
+      var d=SHOP_ITEMS_DATA[id];if(!d)return;
+      var isEq=eq[type]===id;
+      h+='<div class="inv-item'+(isEq?' equipped':'')+'">';
+      if(isEq)h+='<div class="inv-equipped-badge">ON</div>';
+      h+='<div class="inv-item-emoji">'+d.e+'</div>';
+      h+='<div class="inv-item-name">'+d.n+'</div>';
+      if(isEq){
+        h+='<button class="inv-equip-btn active" onclick="unequipItem(this.dataset.t);renderInventoryWin()" data-t="'+type+'">Unequip</button>';
+      }else{
+        h+='<button class="inv-equip-btn" onclick="equipItem(this.dataset.i,this.dataset.t);renderInventoryWin()" data-i="'+id+'" data-t="'+type+'">Equip</button>';
+      }
+      h+='</div>';
+    });
+    h+='</div>';
+  });
+  if(!hasAny)h+='<div style="text-align:center;padding:40px 20px;color:var(--d)"><div style="font-size:48px;margin-bottom:12px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Inventory tomt</div><div style="font-size:12px">Köp saker i Mynt-butiken för att se dem här</div></div>';
+  h+='</div>';
+  el.innerHTML=h;
+}
+
 document.addEventListener("DOMContentLoaded",function(){
   // Show loader immediately on page load
   showLoader("Jakob's Game Library");
@@ -1791,6 +1929,19 @@ document.addEventListener("DOMContentLoaded",function(){
   document.addEventListener("mousedown",function(){_cr.style.width="20px";_cr.style.height="20px";});
   document.addEventListener("mouseup",function(){_cr.style.width="28px";_cr.style.height="28px";});
   document.getElementById("loadMoreBtn").addEventListener("click",function(){state.page++;renderGames();});
+  /* Make all floating windows draggable */
+  var bWin=document.getElementById('browserWin');
+  var bBar=document.querySelector('.browserBar');
+  if(bWin&&bBar)makeDraggable(bWin,bBar);
+  var invWin=document.getElementById('inventoryWin');
+  var invBar=document.getElementById('inventoryWinBar');
+  if(invWin&&invBar)makeDraggable(invWin,invBar);
+  var pCard=document.getElementById('profileCard');
+  if(pCard)makeDraggable(pCard,pCard);
+  document.querySelectorAll('.panelWin').forEach(function(pw){
+    var ph=pw.querySelector('.panelHead');
+    if(ph)makeDraggable(pw,ph);
+  });
   document.getElementById("gamesGrid").addEventListener("click",function(e){
     var fb=e.target.closest(".favBtn");if(fb){e.stopPropagation();toggleFav(parseInt(fb.dataset.idx));return;}
     var card=e.target.closest(".gameCard");if(!card)return;
@@ -2003,10 +2154,10 @@ function applyLang(){
 <div class="browserOverlay" id="browserOverlay" onclick="if(event.target===this)closeBrowser()">
   <div class="browserWin" id="browserWin">
     <div class="browserBar">
-      <button onclick="closeBrowser()" title="Close">✕</button>
-      <h3 id="browserTitle">🌐 Browser</h3>
+      <h3 id="browserTitle" style="flex:1;margin:0;font-size:14px;font-weight:700;color:var(--w)">🌐 Browser</h3>
       <button onclick="document.getElementById('browserFrame').src=document.getElementById('browserFrame').src" title="Reload">🔄</button>
       <button onclick="toggleBrowserFull()" id="bFullBtn" title="Fullscreen">⛶</button>
+      <button onclick="closeBrowser()" title="Stäng" class="bclose">✕</button>
     </div>
     <iframe class="browserFrame" id="browserFrame" src="" allow="microphone;camera;fullscreen" allowfullscreen></iframe>
   </div>
