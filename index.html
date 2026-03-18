@@ -1069,7 +1069,7 @@ function checkAchievements(){
 }
 function renderAchievementsPanel(el){
   if(!el)return;
-  var earned=JSON.parse(localStorage.getItem('achievements_'+(state.user||'')||'[]'));
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:20px;text-align:center'>Logga in för att se achievements</p>";return;}var earned=JSON.parse(localStorage.getItem('achievements_'+state.user)||'[]');
   var html='<div class="sideSection"><h4>🏅 Achievements ('+earned.length+'/'+ACHIEVEMENTS.length+')</h4>';
   ACHIEVEMENTS.forEach(function(a){
     var done=earned.indexOf(a.id)>=0;
@@ -1106,7 +1106,7 @@ function rateGame(idx,stars){
   all[state.user]=stars;
   localStorage.setItem(allKey,JSON.stringify(all));
   updateGameRatingDisplay(idx);
-  toast('Betyg sparat: '+'★'.repeat(stars),'ok');
+  updateQuests('rate');toast('Betyg sparat: '+'★'.repeat(stars),'ok');
 }
 function getGameRating(idx){
   var all=JSON.parse(localStorage.getItem('ratings_'+idx)||'{}');
@@ -1265,7 +1265,7 @@ function switchSideTab(tab){
   var panel=document.getElementById("panel_"+tab);
   if(panel){panel.classList.add("active");
     panel.style.animation="none";panel.offsetHeight;panel.style.animation="panelIn .25s ease";
-    var renders={favoriter:renderFavsPanel,teman:renderThemePanel,quests:renderQuestsPanel,butik:renderShopPanel,instaellningar:renderSettingsPanel,profil:renderProfilePanel,admin:renderAdminPanel,updates:renderUpdatesPanel,inventory:renderInventoryPanel,leaderboard:renderLeaderboardPanel,achievements:function(){renderAchievementsPanel(document.getElementById('panel_achievements'));}};
+    function renderForslagPanel(){var el=document.getElementById('panel_forslag');if(!el)return;el.innerHTML='<div class="sideSection"><h4>'+T('sugTitle')+'</h4><div class="sugForm"><input type="text" id="sugGame" placeholder="'+T('sugPlaceholder1')+'" data-i18n-ph="sugPlaceholder1"><textarea id="sugText" placeholder="'+T('sugPlaceholder2')+'" data-i18n-ph="sugPlaceholder2"></textarea><button class="pill primary" onclick="submitSuggestion()" style="justify-content:center;margin-top:2px">'+T('sugBtn')+'</button></div></div>';}var renders={favoriter:renderFavsPanel,teman:renderThemePanel,quests:renderQuestsPanel,forslag:renderForslagPanel,butik:renderShopPanel,instaellningar:renderSettingsPanel,profil:renderProfilePanel,admin:renderAdminPanel,updates:renderUpdatesPanel,inventory:renderInventoryPanel,leaderboard:renderLeaderboardPanel,achievements:function(){renderAchievementsPanel(document.getElementById('panel_achievements'));}};
     if(renders[tab])renders[tab]();
   }
 }
@@ -1395,6 +1395,56 @@ function _renderChangelogHTML(el){
   });
   el.innerHTML=h;
 }
+function _getQuestDailyProg(){
+  if(!state.user)return{};
+  var today=new Date().toDateString();
+  return JSON.parse(localStorage.getItem('qdp_'+state.user+'_'+today)||'{}');
+}
+function _setQuestDailyProg(key,val){
+  if(!state.user)return;
+  var today=new Date().toDateString();
+  var k='qdp_'+state.user+'_'+today;
+  var d=JSON.parse(localStorage.getItem(k)||'{}');
+  d[key]=(d[key]||0)+val;
+  localStorage.setItem(k,JSON.stringify(d));
+}
+function getQuests(){
+  if(!state.user)return[];
+  var today=new Date().toDateString();
+  var savedKey='quests_'+state.user+'_'+today;
+  var saved=JSON.parse(localStorage.getItem(savedKey)||'{"claimed":[]}');
+  var claimed=saved.claimed||[];
+  var dp=_getQuestDailyProg();
+  /* Compute progress from stored data */
+  var playtime=parseInt(localStorage.getItem('playtime_'+state.user+'_'+today)||'0');
+  var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');
+  var todayGames=recent.filter(function(r){return r.date===today;}).length;
+  var quests=[
+    /* Daily */
+    {id:'play_1',cat:'daily',name:'Spela ett spel',desc:'Öppna valfritt spel idag',goal:1,prog:Math.min(todayGames,1),reward:15},
+    {id:'play_3',cat:'daily',name:'Spela 3 spel',desc:'Öppna 3 olika spel idag',goal:3,prog:Math.min(todayGames,3),reward:30},
+    {id:'time_5',cat:'daily',name:'5 minuter spelande',desc:'Spela i 5 minuter totalt',goal:5,prog:Math.min(playtime,5),reward:20},
+    {id:'time_15',cat:'daily',name:'15 minuter spelande',desc:'Spela i 15 minuter totalt',goal:15,prog:Math.min(playtime,15),reward:50},
+    {id:'search_q',cat:'daily',name:'Sök ett spel',desc:'Använd sökfältet',goal:1,prog:Math.min(dp.searches||0,1),reward:5},
+    {id:'fav_q',cat:'daily',name:'Spara en favorit',desc:'Lägg till ett spel i favoriter',goal:1,prog:Math.min(dp.favs||0,1),reward:10},
+    /* Social */
+    {id:'chat_q',cat:'social',name:'Skicka ett meddelande',desc:'Skriv i chatten',goal:1,prog:Math.min(dp.chats||0,1),reward:10},
+    {id:'friend_q',cat:'social',name:'Lägg till en vän',desc:'Lägg till någon som vän',goal:1,prog:Math.min(dp.friends||0,1),reward:25},
+    {id:'rate_q',cat:'social',name:'Betygsätt ett spel',desc:'Ge ett spel ett betyg',goal:1,prog:Math.min(dp.ratings||0,1),reward:10},
+    /* Milestone */
+    {id:'ms_level2',cat:'milestone',name:'Nå nivå 2',desc:'Levla upp till nivå 2',goal:2,prog:Math.min(state.level,2),reward:100},
+    {id:'ms_level5',cat:'milestone',name:'Nå nivå 5',desc:'Levla upp till nivå 5',goal:5,prog:Math.min(state.level,5),reward:250},
+    {id:'ms_coins100',cat:'milestone',name:'Samla 100 mynt',desc:'Tjäna 100 mynt totalt',goal:100,prog:Math.min(state.coins,100),reward:0},
+    {id:'ms_favs5',cat:'milestone',name:'5 favoriter',desc:'Spara 5 favoriter',goal:5,prog:Math.min(state.favorites.length,5),reward:50},
+    {id:'ms_games10',cat:'milestone',name:'10 spel totalt',desc:'Spela 10 spel (alla dagar)',goal:10,prog:Math.min(state.gamesPlayed||0,10),reward:75},
+    {id:'ms_games50',cat:'milestone',name:'50 spel totalt',desc:'Spela 50 spel',goal:50,prog:Math.min(state.gamesPlayed||0,50),reward:200},
+  ];
+  quests.forEach(function(q){
+    q.done=q.prog>=q.goal;
+    q.claimed=claimed.indexOf(q.id)>=0;
+  });
+  return quests;
+}
 function renderQuestsPanel(){
   var el=document.getElementById('panel_quests')||document.getElementById('questsOverlayBody');
   if(!el)return;
@@ -1441,11 +1491,17 @@ function renderQuestsPanel(){
   });
 }
 
-function updateQuests(){
+function updateQuests(type){
+  /* Track daily progress counters */
+  if(type&&state.user){
+    var typeMap={fav:'favs',search:'searches',chat:'chats',friend:'friends',rate:'ratings'};
+    if(typeMap[type])_setQuestDailyProg(typeMap[type],1);
+  }
   var el=document.getElementById('panel_quests');
   if(el&&el.classList.contains('active'))renderQuestsPanel();
-  else if(document.getElementById('questsOverlayBody')&&document.getElementById('questsOverlayBody').innerHTML)renderQuestsPanel();
   updateGameQuestWidget();
+  /* Check achievements every time quests update */
+  if(typeof checkAchievements==='function')checkAchievements();
 }
 function renderShopPanel(){
   var el=document.getElementById("butikOverlayBody");
@@ -1802,7 +1858,7 @@ function sendChat(){
     state.coins-=1;updateHUD();saveState();
   }
   var msg={user:state.user,text:txt,ts:Date.now(),isAdmin:!!state.isAdmin};
-  inp.value="";
+  inp.value="";updateQuests('chat');
   if(_sb){
     _sb.from("chat_messages").insert({username:state.user,text:txt,timestamp:msg.ts,is_admin:!!state.isAdmin})
       .then(function(){loadChatMsgs();}).catch(function(){
