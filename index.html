@@ -1827,6 +1827,7 @@ function doLogin(){
   if(isUserAdmin(u)&&btoa(btoa(p))===ADMINPW){
     loadState(u);state.user=u;state.isAdmin=true;
     localStorage.setItem("lastUser",u);
+    localStorage.setItem("acc_"+u,btoa(p));
     closeLoginModal();finishLogin();
     toast("Välkommen, "+u+"! (Admin)");
     return;
