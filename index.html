@@ -2601,7 +2601,7 @@ document.addEventListener("DOMContentLoaded",function(){
   /* Tangentbordsljud */
   document.addEventListener("keydown",function(e){
     var _igp=document.getElementById("inlineGamePanel");if(_igp&&_igp.style.display!=""&&_igp.style.display!="none")return;
-    if(e.key.length===1||e.key==="Backspace")playKey();
+    if(e.key&&(e.key.length===1||e.key==="Backspace"))playKey();
   });
 
   document.getElementById("loadMoreBtn").addEventListener("click",function(){state.page++;renderGames();});
