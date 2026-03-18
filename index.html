@@ -270,9 +270,25 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 /* ---- UPDATES PAGE ---- */
 .updatesPage{position:fixed;inset:0;background:var(--bg0);z-index:901;display:none;flex-direction:column;overflow:hidden;}
 .updatesPage.open{display:flex;}
-.updatesBar{display:flex;align-items:center;gap:14px;padding:0 20px;height:56px;background:var(--glass);border-bottom:2px solid var(--p0);flex-shrink:0;backdrop-filter:blur(16px);}
-.updatesBar h2{flex:1;text-align:center;font-size:20px;font-weight:900;margin:0;background:linear-gradient(135deg,var(--w),var(--p1));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-.updatesContent{flex:1;overflow-y:auto;padding:24px;max-width:760px;margin:0 auto;width:100%;}
+.updatesBar{display:flex;align-items:center;gap:14px;padding:0 24px;height:58px;background:var(--glass);border-bottom:1px solid var(--line);flex-shrink:0;backdrop-filter:blur(20px);}
+.updatesBackBtn{display:flex;align-items:center;gap:6px;background:var(--glass);border:1px solid var(--line);color:var(--d);font-size:13px;font-weight:600;cursor:pointer;padding:7px 14px;border-radius:10px;transition:all .15s;}
+.updatesBackBtn:hover{color:var(--w);border-color:var(--p1);background:rgba(255,255,255,.07);}
+.updatesBar-title{flex:1;font-size:18px;font-weight:900;color:var(--w);letter-spacing:-.02em;}
+.updatesContent{flex:1;overflow-y:auto;padding:32px 24px;}
+.updatesInner{max-width:780px;margin:0 auto;}
+.updates-heading{font-size:28px;font-weight:900;color:var(--w);margin-bottom:6px;letter-spacing:-.03em;}
+.updates-heading span{background:linear-gradient(135deg,var(--p1),var(--p0));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.updates-sub{font-size:13px;color:var(--d);margin-bottom:28px;}
+.updates-card{background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-bottom:16px;transition:border-color .2s;}
+.updates-card:hover{border-color:rgba(255,255,255,.15);}
+.updates-card-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.updates-ver{font-size:20px;font-weight:900;color:var(--w);letter-spacing:-.02em;}
+.updates-tag{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.04em;text-transform:uppercase;}
+.updates-date{font-size:11px;color:var(--d);margin-left:auto;}
+.updates-card-title{font-size:14px;font-weight:800;color:var(--w);margin-bottom:10px;}
+.updates-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:5px;}
+.updates-list li{display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--d);line-height:1.5;}
+.updates-list li .ul-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;margin-top:7px;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -350,13 +366,11 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 
 <div class="updatesPage" id="updatesPage">
   <div class="updatesBar">
-    <button class="gameBarBtn" onclick="closeUpdatesPage()" style="gap:6px;flex-shrink:0">
-      <span>☰</span> <span style="font-size:12px">Tillbaka</span>
-    </button>
-    <h2>📢 Update Logs</h2>
+    <button class="updatesBackBtn" onclick="closeUpdatesPage()">← Tillbaka</button>
+    <div class="updatesBar-title">📢 Update Logs</div>
     <div style="width:100px"></div>
   </div>
-  <div class="updatesContent" id="updatesPageBody"></div>
+  <div class="updatesContent"><div class="updatesInner" id="updatesPageBody"></div></div>
 </div>
 
 <div class="gameOverlay" id="gameOverlay">
@@ -1024,72 +1038,72 @@ function renderChangelogPanel(){
 function _renderChangelogHTML(el){
   if(!el)return;
   var logs=[
-    {v:"v2.5",d:"2025-06",tag:"new",title:"Discord integration",items:[
-      "Discord now opens in a built-in overlay instead of a popup",
-      "Added cookie consent banner",
-      "Dark mode now applies instantly without page reload",
-      "Light mode game area fixed - games are now bright in light mode"
+    {v:"v2.6",d:"Mars 2026",tag:"new",title:"📢 Update Logs & Bugfixar",items:[
+      "Update Logs öppnar nu som en hel sida",
+      "Loading screen fixad — syntes inte pga z-index bugg",
+      "Quest-panelens kategori-emojis fixade",
+      "Minimum 1.4s visningstid på laddningsskärmen"
     ]},
-    {v:"v2.4",d:"2025-05",tag:"new",title:"Profiles & Friends",items:[
-      "Added Discord-style profile overlay",
-      "Friends system - add and remove friends",
-      "Browse and search user profiles",
-      "Profile avatars and stats"
+    {v:"v2.5",d:"Feb 2026",tag:"new",title:"🎮 Spel & Discord i overlay",items:[
+      "Discord öppnar nu i ett inbyggt fönster istället för popup",
+      "Spel öppnar i ett snyggt fullscreen-overlay",
+      "Jakob AI och Browser i sidopanelen",
+      "Mörkt läge appliceras direkt utan omladdning"
     ]},
-    {v:"v2.3",d:"2025-04",tag:"update",title:"Loading Screens",items:[
-      "New centered loading screen with progress bar",
-      "Minimum 1.4s display time",
-      "Loading screen appears when opening games, browser and Discord",
-      "Funny loading messages"
+    {v:"v2.4",d:"Jan 2026",tag:"new",title:"👥 Profiler & Vänner",items:[
+      "Discord-liknande profilsida",
+      "Vännsystem — lägg till och ta bort vänner",
+      "Sök och visa andra spelares profiler",
+      "Profilavatar och statistik"
     ]},
-    {v:"v2.2",d:"2025-03",tag:"new",title:"Browser & Jakob AI",items:[
-      "Built-in browser panel in the sidebar",
-      "Jakob AI assistant panel",
-      "Both support fullscreen mode"
+    {v:"v2.3",d:"Dec 2025",tag:"update",title:"⏳ Laddningsskärmar",items:[
+      "Ny centrerad laddningsskärm med progress-bar",
+      "Roliga laddningsmeddelanden",
+      "Visas vid spel, browser och Discord"
     ]},
-    {v:"v2.1",d:"2025-02",tag:"update",title:"Internationalization",items:[
-      "7 languages: English, Swedish, Spanish, French, German, Russian, Chinese",
-      "Language picker in Settings",
-      "All UI elements translated"
+    {v:"v2.2",d:"Nov 2025",tag:"new",title:"🌐 Browser & Jakob AI",items:[
+      "Inbyggd browser i sidopanelen",
+      "Jakob AI-assistent i sidopanelen",
+      "Båda stödjer fullscreen-läge"
     ]},
-    {v:"v2.0",d:"2025-01",tag:"new",title:"Live Features",items:[
-      "Live user count under the title",
-      "Global chat via Supabase",
-      "Persistent accounts (login/register)",
-      "XP and level system"
+    {v:"v2.1",d:"Okt 2025",tag:"update",title:"🌐 Sju Språk",items:[
+      "Engelska, Svenska, Spanska, Franska, Tyska, Ryska, Mandarin",
+      "Språkväljare i Inställningar",
+      "All text översatt"
     ]},
-    {v:"v1.5",d:"2024-12",tag:"update",title:"UI Overhaul",items:[
-      "Custom cursor",
-      "Dark/light mode toggle",
-      "Sound effects",
-      "Theme selector (6 color themes)"
+    {v:"v2.0",d:"Sep 2025",tag:"new",title:"💬 Live-funktioner",items:[
+      "Live-användarantal under titeln",
+      "Global chatt via Supabase",
+      "Persistenta konton (login/registrera)",
+      "XP- och nivåsystem"
     ]},
-    {v:"v1.0",d:"2024-11",tag:"launch",title:"Launch 🚀",items:[
-      "Jakob's Game Library launched!",
-      "1000+ games available",
-      "Favorites system",
-      "Quest system"
+    {v:"v1.0",d:"Aug 2025",tag:"launch",title:"🚀 Lansering",items:[
+      "Jakob's Game Library lanserades!",
+      "1000+ spel tillgängliga",
+      "Favoritystem",
+      "Questsystem"
     ]}
   ];
   var tagColors={new:"#7fffb3",update:"#7ec8ff",launch:"#ffdd57"};
-  var h='<div style="padding:4px 0">';
+  var tagLabels={new:"NYTT",update:"UPDATE",launch:"LAUNCH"};
+  var h='<div class="updates-heading"><span>📢</span> Uppdateringar</div>';
+  h+='<div class="updates-sub">Senaste uppdateringar och ändringar på Jakobs Game Portal</div>';
   logs.forEach(function(log){
     var tc=tagColors[log.tag]||"var(--p1)";
-    h+='<div style="margin-bottom:18px;border-left:3px solid '+tc+';padding-left:16px">';
-    h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
-    h+='<span style="font-size:18px;font-weight:900;color:var(--w)">'+log.v+'</span>';
-    h+='<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'44">'+log.tag.toUpperCase()+'</span>';
-    h+='<span style="font-size:11px;color:var(--d);margin-left:auto">'+log.d+'</span>';
+    var lbl=tagLabels[log.tag]||log.tag.toUpperCase();
+    h+='<div class="updates-card">';
+    h+='<div class="updates-card-header">';
+    h+='<span class="updates-ver">'+log.v+'</span>';
+    h+='<span class="updates-tag" style="background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'55">'+lbl+'</span>';
+    h+='<span class="updates-date">'+log.d+'</span>';
     h+='</div>';
-    h+='<div style="font-size:13px;font-weight:700;color:var(--w);margin-bottom:6px">'+log.title+'</div>';
-    h+='<ul style="list-style:none;padding:0;margin:0">';
+    h+='<div class="updates-card-title">'+log.title+'</div>';
+    h+='<ul class="updates-list">';
     log.items.forEach(function(item){
-      h+='<li style="font-size:12px;color:var(--d);padding:2px 0;display:flex;gap:6px">'
-        +'<span style="color:'+tc+'">+</span>'+item+'</li>';
+      h+='<li><span class="ul-dot" style="background:'+tc+'"></span>'+item+'</li>';
     });
     h+='</ul></div>';
   });
-  h+='</div>';
   el.innerHTML=h;
 }
 function renderQuestsPanel(){
