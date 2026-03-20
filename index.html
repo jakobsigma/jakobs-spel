@@ -889,7 +889,7 @@ function renderRoadmapPanel(targetEl){
     {s:"done",l:"✅ Klar",c:"#3ba55c",t:"7 Språk",d:"Svenska, Engelska, Spanska, Franska, Tyska, Ryska, Kinesiska"},
     {s:"done",l:"✅ Klar",c:"#3ba55c",t:"Draggable Windows",d:"Chat, Profil, Teman, Soundboard som rörliga fönster"},
     {s:"done",l:"✅ Klar",c:"#3ba55c",t:"Cross-Device Avatarer",d:"Profilbilder och data synkas via Supabase på alla enheter"},
-    {s:"done",l:"✅ Klar",c:"#3ba55c",t:"Rekommenderade Spel",d:"Utvalda spel på startsidan — WorldGuessr, Eaglercraft, SummerRider3D"},
+    {s:"done",l:"✅ Klar",c:"#3ba55c",t:"Rekommenderade Spel",d:"Utvalda spel på startsidan — WorldGuessr, SummerRider3D"},
     {s:"progress",l:"🔨 Pågår",c:"#faa61a",t:"Spel A–Z",d:"Dela upp spelgallerin alfabetiskt för lättare navigering"},
     {s:"soon",l:"📅 Snart",c:"#7289da",t:"Notifikationer 🔔",d:"Notis när vän är online eller skickar meddelande"},
     {s:"soon",l:"📅 Snart",c:"#7289da",t:"Clan-system",d:"Skapa och gå med i clans, tävla på leaderboard"},
@@ -915,7 +915,6 @@ function renderRecommendedSection(){
   var el=document.getElementById('recommendedSection');if(!el)return;
   var featured=[
     {f:"clworldguessr.html",name:"WorldGuessr",emoji:"🌍",desc:"Gissa länder på Google Street View",color:"#0ea5e9"},
-    {f:"EaglercraftZ_1.11.2.html",name:"Eaglercraft 1.11.2",emoji:"⛰️",desc:"Minecraft i webbläsaren — nyaste versionen",color:"#3ba55c"},
     {f:"clsummerRider3D.html",name:"Summer Rider 3D",emoji:"🏍️",desc:"Motorcykelracing i 3D",color:"#faa61a"},
   ];
   var h='<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;padding:4px 0 8px">';
