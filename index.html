@@ -970,7 +970,7 @@ function openBrowser(type){
     else{if(win&&type!=='ai'){win.style.width='';win.style.height='';}}
     overlay.classList.add('open');
     frame.onload=function(){hideLoader();frame.onload=null;};
-    var srcMap={'ai':'UGS-Files/jakobai.html','browser':'UGS-Files/browser.html','discord':'UGS-Files/discord.html'};
+    var srcMap={'ai':'UGS-Files/jakobai.html','browser':'https://mb.webs.vc','discord':'UGS-Files/discord.html'};
     frame.src=srcMap[type]||'UGS-Files/browser.html';
   },80);
 }
