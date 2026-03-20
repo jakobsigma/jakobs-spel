@@ -196,18 +196,20 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 .igp-back-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(123,44,255,.12);border:1px solid var(--line);border-radius:20px;padding:7px 16px;color:var(--m);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;flex-shrink:0;}
 .igp-back-btn:hover{background:rgba(123,44,255,.25);color:var(--w);border-color:var(--p0);}
 .igp-title{font-size:17px;font-weight:800;color:var(--w);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;}
-.igp-layout{display:flex;gap:14px;align-items:flex-start;padding-top:10px;}
-.igp-box{flex:1;min-width:0;position:relative;border-radius:14px;overflow:hidden;background:#000;height:clamp(300px,45vh,460px);border:1px solid var(--line);box-shadow:0 8px 40px rgba(0,0,0,.5);}
+.igp-layout{display:grid;grid-template-columns:1fr 280px;gap:14px;align-items:flex-start;padding-top:10px;}
+.igp-box{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:16/9;width:100%;border:1px solid var(--line);box-shadow:0 8px 40px rgba(0,0,0,.5);}
 .igp-box .gameFrame{position:absolute;inset:0;width:100%;height:100%;border:none;border-radius:0;}
-.igp-loader{position:absolute;inset:0;background:var(--bg0);display:flex;align-items:center;justify-content:center;z-index:10;border-radius:14px;}
-.igp-spin{width:44px;height:44px;border:4px solid var(--line);border-top-color:var(--p0);border-radius:50%;animation:igpSpin .7s linear infinite;}
+.igp-loader{position:absolute;inset:0;background:linear-gradient(135deg,rgba(15,8,30,.97),rgba(25,10,50,.99));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:10;border-radius:14px;transition:opacity .4s;}
+.igp-loader-text{font-size:12px;color:var(--d);font-weight:600;letter-spacing:.05em;}
+.igp-spin{width:48px;height:48px;border:3px solid rgba(123,44,255,.2);border-top-color:var(--p0);border-left-color:var(--p1);border-radius:50%;animation:igpSpin .75s linear infinite;}
 @keyframes igpSpin{to{transform:rotate(360deg)}}
 .igp-fullscreen-btn{position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer;z-index:11;transition:all .2s;backdrop-filter:blur(6px);}
 .igp-fullscreen-btn:hover{background:rgba(123,44,255,.65);border-color:var(--p0);}
-.igp-side{display:none;}
+.igp-side{display:flex;flex-direction:column;gap:8px;min-width:0;}
 .igp-side .gameQuestWidget{position:static!important;width:100%!important;pointer-events:auto!important;box-shadow:var(--shadow)!important;}
 .igp-side .gameQuestWidget.hidden{display:none!important;opacity:1!important;}
-@media(max-width:768px){.igp-layout{flex-direction:column;}.igp-side{width:100%;}.igp-box{aspect-ratio:4/3;}}
+@media(max-width:900px){.igp-layout{grid-template-columns:1fr;}}
+@media(max-width:768px){.igp-box{aspect-ratio:4/3;}}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;}
 .modal.open{display:flex;}
 .modalBox{background:var(--bg1);border:1px solid var(--line);border-radius:var(--r);padding:26px;width:min(380px,92vw);backdrop-filter:blur(30px);box-shadow:var(--shadow);}
@@ -522,18 +524,24 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
       <iframe class="gameFrame" id="gameFrame" src="about:blank" allowfullscreen allow="fullscreen;autoplay"></iframe>
       <div class="igp-loader" id="igpLoader">
         <div class="igp-spin"></div>
+        <div class="igp-loader-text" data-i18n="loading">Laddar...</div>
       </div>
       <button class="igp-fullscreen-btn" onclick="goFullscreen()" data-i18n="fullscreen">⛶ Fullskärm</button>
     </div>
     <div class="igp-side">
+      <div class="igp-info-card" id="igpInfoCard" style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:14px;">
+        <div id="igpInfoEmoji" style="font-size:32px;text-align:center;margin-bottom:8px">🎮</div>
+        <div id="igpInfoTitle" style="font-size:14px;font-weight:800;color:var(--w);text-align:center;margin-bottom:4px">—</div>
+        <div id="igpInfoCat" style="font-size:11px;color:var(--d);text-align:center;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px"></div>
+        <div id="gameSubInfo" style="font-size:11px;color:var(--d);text-align:center"></div>
+      </div>
       <div class="gameQuestWidget hidden" id="gameQuestWidget">
         <div class="gameQuestWidgetTitle">🎮 Quest</div>
         <div class="gameQuestWidgetName" id="gqwName">—</div>
         <div class="gameQuestWidgetProg" id="gqwProg">0 / 0</div>
         <div class="gameQuestWidgetBar"><div class="gameQuestWidgetFill" id="gqwFill" style="width:0%"></div></div>
       </div>
-      <div id="gameSubInfo" style="font-size:11px;color:var(--d);text-align:center;margin-top:4px"></div>
-      <div id="igpRating" style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:4px">
+      <div id="igpRating" style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
         <div style="font-size:10px;color:var(--d);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⭐ Betygsätt</div>
         <div id="igpRatingStars" style="display:flex;align-items:center;gap:2px"></div>
       </div>
@@ -1248,7 +1256,7 @@ function updateGameRatingDisplay(idx){
   if(info.count)html+='<span style="font-size:11px;color:var(--d);margin-left:6px">'+info.avg+' ('+info.count+')</span>';
   el.innerHTML=html;
 }
-function openGame(i){var g=GAMES[i];if(!g)return;if(gameIsLocked(i)){toast('Lås upp spelet i butiken!','error');return;}var gName=g.name.replace(/^cl/i,'').trim();_currentGameIdx=i;var fb=document.getElementById('gameFavBtn');if(fb)fb.textContent=(state.favorites.indexOf(i)>=0)?'★':'☆';var si=document.getElementById('gameSubInfo');if(si)si.textContent=(g.cat||'');var gt=document.getElementById('gameTitle');if(gt)gt.textContent=gName;/* Hide grid, filterbar, search, hero */var filterBar=document.querySelector('.filterBar');var searchWrap=document.querySelector('.searchWrap');var gGrid=document.getElementById('gamesGrid');var lmw=document.getElementById('loadMoreWrap');var hero=document.querySelector('.hero');var recWrap=document.getElementById('recommendedWrap');var footer=document.querySelector('footer');if(filterBar)filterBar.style.display='none';if(searchWrap)searchWrap.style.display='none';if(gGrid)gGrid.style.display='none';if(lmw)lmw.style.display='none';if(hero)hero.style.display='none';if(recWrap)recWrap.style.display='none';if(footer)footer.style.display='none';var panel=document.getElementById('inlineGamePanel');if(panel)panel.style.display='flex';/* Scroll to top so igp-bar is visible */window.scrollTo({top:0,behavior:'smooth'});/* Reload btn */var rb=document.getElementById('igpReloadBtn');if(rb)rb.onclick=function(){var f=document.getElementById('gameFrame');if(f)f.src=f.src;};/* Show inline loader */var ldr=document.getElementById('igpLoader');if(ldr)ldr.style.display='flex';var fr=document.getElementById('gameFrame');if(fr){fr.onload=function(){var l=document.getElementById('igpLoader');if(l)l.style.display='none';fr.onload=null;};fr.src='UGS-Files/'+g.f;}addCoins(1);var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');var today=new Date().toDateString();if(!recent.find(function(r){return r.f===g.f&&r.date===today;})){recent.unshift({f:g.f,name:g.name,date:today});if(recent.length>50)recent.pop();localStorage.setItem('recentGames',JSON.stringify(recent));state.gamesPlayed=(state.gamesPlayed||0)+1;}window._gameStartTime=Date.now();updateQuests();saveState();setTimeout(updateGameQuestWidget,200);setTimeout(function(){updateGameRatingDisplay(i);},100);checkAchievements();}
+function openGame(i){var g=GAMES[i];if(!g)return;if(gameIsLocked(i)){toast('Lås upp spelet i butiken!','error');return;}var gName=g.name.replace(/^cl/i,'').trim();_currentGameIdx=i;var fb=document.getElementById('gameFavBtn');if(fb)fb.textContent=(state.favorites.indexOf(i)>=0)?'★':'☆';var si=document.getElementById('gameSubInfo');if(si)si.textContent='';var gt=document.getElementById('gameTitle');if(gt)gt.textContent=gName;var ie=document.getElementById('igpInfoEmoji');if(ie)ie.textContent=g.emoji||'🎮';var it=document.getElementById('igpInfoTitle');if(it)it.textContent=gName;var ic=document.getElementById('igpInfoCat');if(ic)ic.textContent=g.cat||'';/* Hide grid, filterbar, search, hero */var filterBar=document.querySelector('.filterBar');var searchWrap=document.querySelector('.searchWrap');var gGrid=document.getElementById('gamesGrid');var lmw=document.getElementById('loadMoreWrap');var hero=document.querySelector('.hero');var recWrap=document.getElementById('recommendedWrap');var footer=document.querySelector('footer');if(filterBar)filterBar.style.display='none';if(searchWrap)searchWrap.style.display='none';if(gGrid)gGrid.style.display='none';if(lmw)lmw.style.display='none';if(hero)hero.style.display='none';if(recWrap)recWrap.style.display='none';if(footer)footer.style.display='none';var panel=document.getElementById('inlineGamePanel');if(panel)panel.style.display='flex';/* Scroll to top so igp-bar is visible */window.scrollTo({top:0,behavior:'smooth'});/* Reload btn */var rb=document.getElementById('igpReloadBtn');if(rb)rb.onclick=function(){var f=document.getElementById('gameFrame');if(f)f.src=f.src;};/* Show inline loader */var ldr=document.getElementById('igpLoader');if(ldr)ldr.style.display='flex';var fr=document.getElementById('gameFrame');if(fr){fr.onload=function(){var l=document.getElementById('igpLoader');if(l)l.style.display='none';fr.onload=null;};fr.src='UGS-Files/'+g.f;}addCoins(1);var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');var today=new Date().toDateString();if(!recent.find(function(r){return r.f===g.f&&r.date===today;})){recent.unshift({f:g.f,name:g.name,date:today});if(recent.length>50)recent.pop();localStorage.setItem('recentGames',JSON.stringify(recent));state.gamesPlayed=(state.gamesPlayed||0)+1;}window._gameStartTime=Date.now();updateQuests();saveState();setTimeout(updateGameQuestWidget,200);setTimeout(function(){updateGameRatingDisplay(i);},100);checkAchievements();}
 var _currentGameIdx=-1;
 function toggleGameFav(){
   if(_currentGameIdx<0)return;
