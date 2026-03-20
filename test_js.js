@@ -1,0 +1,1988 @@
+
+
+/* =======================================================
+   SUPABASE-KONFIGURATION (for konton over enheter)
+   1. Ga till https://supabase.com och skapa ett gratis projekt
+   2. Ga till Project Settings > API
+   3. Kopiera "Project URL" och "anon public" nyckeln hit
+   4. Skapa tabellerna med SQL nedan i Supabase SQL-editorn:
+
+   CREATE TABLE accounts (
+     username TEXT PRIMARY KEY,
+     password_hash TEXT NOT NULL,
+     is_admin BOOLEAN DEFAULT FALSE,
+     banned BOOLEAN DEFAULT FALSE
+   );
+   CREATE TABLE user_data (
+     username TEXT PRIMARY KEY,
+     coins INT DEFAULT 0, xp INT DEFAULT 0, level INT DEFAULT 1,
+     favorites JSONB DEFAULT '[]', games_played INT DEFAULT 0,
+     settings JSONB DEFAULT '{}'
+   );
+   ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE user_data ENABLE ROW LEVEL SECURITY;
+   CREATE POLICY "public" ON accounts FOR ALL USING (true) WITH CHECK (true);
+   CREATE POLICY "public" ON user_data FOR ALL USING (true) WITH CHECK (true);
+   ======================================================= */
+var SUPABASE_URL="https://vqntfjxscvgzjrydopje.supabase.co";
+var SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxbnRmanhzY3ZnempyeWRvcGplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3NDE4NTAsImV4cCI6MjA4OTMxNzg1MH0.0ZIkeqI6Y_KNapIL5os7xprtN0BJJsQiVCXLV6oHGWI";
+var _sb=null;
+try{
+  if(SUPABASE_URL!=="DIN_SUPABASE_URL"){
+    _sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+    console.log("Supabase ansluten!");
+  }else{
+    console.log("Supabase ej konfigurerat - anvander lokal lagring.");
+  }
+}catch(e){console.warn("Supabase:",e);}
+
+/* ---- LJUD (Web Audio API) ---- */
+var _audioCtx=null;
+function _getACtx(){
+  if(!_audioCtx)_audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  return _audioCtx;
+}
+function playClick(){
+  if(!state||!state.settings||state.settings.sounds===false)return;
+  try{
+    var c=_getACtx(),o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.type="sine";
+    o.frequency.setValueAtTime(680,c.currentTime);
+    o.frequency.exponentialRampToValueAtTime(320,c.currentTime+.07);
+    g.gain.setValueAtTime(.06,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.09);
+    o.start(c.currentTime);o.stop(c.currentTime+.09);
+  }catch(e){}
+}
+function playKey(){
+  if(!state||!state.settings||state.settings.sounds===false)return;
+  try{
+    var c=_getACtx(),o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.type="triangle";
+    o.frequency.setValueAtTime(900,c.currentTime);
+    o.frequency.exponentialRampToValueAtTime(600,c.currentTime+.03);
+    g.gain.setValueAtTime(.02,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.04);
+    o.start(c.currentTime);o.stop(c.currentTime+.04);
+  }catch(e){}
+}
+
+/* ---- ADMIN-HELPERS ---- */
+function getAdminList(){
+  var a=JSON.parse(localStorage.getItem("adminUsers")||"[]");
+  if(a.indexOf("jakob123")<0)a.push("jakob123");
+  return a;
+}
+function isUserAdmin(u){return getAdminList().indexOf(u)>=0;}
+function adminToggleAdmin(u){
+  if(!state.isAdmin)return;
+  if(u==="jakob123")return toast("jakob123 ar alltid admin","error");
+  var admins=getAdminList(),idx=admins.indexOf(u);
+  if(idx>=0){
+    admins.splice(idx,1);
+    localStorage.setItem("adminUsers",JSON.stringify(admins));
+    if(_sb)_sb.from("accounts").update({is_admin:false}).eq("username",u).then(function(){});
+    toast(u+" ar inte langre admin","ok");
+  }else{
+    admins.push(u);
+    localStorage.setItem("adminUsers",JSON.stringify(admins));
+    if(_sb)_sb.from("accounts").update({is_admin:true}).eq("username",u).then(function(){});
+    toast(u+" ar nu admin!","ok");
+  }
+  renderAdminPanel();
+}
+
+/* ---- DARK/LIGHT MODE ---- */
+var _LIGHT_BG={"--bg0":"#f4f0ff","--bg1":"#ede6ff","--bg2":"#e2d8ff"};
+var _DARK_BGS={purple:{"--bg0":"#050008","--bg1":"#0b0014","--bg2":"#120022"},neon:{"--bg0":"#000a08","--bg1":"#00150f","--bg2":"#001a10"},gold:{"--bg0":"#0a0600","--bg1":"#130900","--bg2":"#1a0d00"},red:{"--bg0":"#080003","--bg1":"#100008","--bg2":"#160005"},blue:{"--bg0":"#000510","--bg1":"#000a1f","--bg2":"#000e2b"},pink:{"--bg0":"#08000a","--bg1":"#120010","--bg2":"#180015"}};
+function applyDarkMode(isDark){
+  document.documentElement.setAttribute("data-theme",isDark?"dark":"light");
+  var r=document.documentElement;
+  if(!isDark){
+    /* Light mode — force bg vars inline so they beat applyTheme's inline styles */
+    Object.keys(_LIGHT_BG).forEach(function(k){r.style.setProperty(k,_LIGHT_BG[k]);});
+  }else{
+    /* Dark mode — restore theme's dark bg vars */
+    var theme=(state&&state.settings&&state.settings.theme)||"purple";
+    var bg=_DARK_BGS[theme]||_DARK_BGS.purple;
+    Object.keys(bg).forEach(function(k){r.style.setProperty(k,bg[k]);});
+  }
+}
+
+/* ---- LOADER ---- */
+var _loaderMsgs=["Laddar sidan du får ha lite tålamod... 🥲","sprid gärna sidan den tog väldigt lång tid","jakob var här...","vänta, glömde ladda min telefon 😭","letar efter hjärnceller... hittade noll 🥲","nästan där stressa inte","skicka i chatten!"];
+var _loaderMsgInterval=null;
+var _loaderShownAt=0;
+function showLoader(title){
+  _loaderShownAt=Date.now();
+  var o=document.getElementById("loaderOverlay");
+  var bar=document.getElementById("loaderBar");
+  var msg=document.getElementById("loaderMsg");
+  var tit=document.getElementById("loaderTitle");
+  if(!o)return;
+  if(tit)tit.textContent=title||"Loading...";
+  bar.className="loader-bar";void bar.offsetHeight;bar.className="loader-bar going";
+  o.classList.add("visible");
+  if(msg){
+    var msgs=_loaderMsgs.slice().sort(function(){return Math.random()-.5;});
+    var i=0;msg.textContent=msgs[0];
+    _loaderMsgInterval=setInterval(function(){i=(i+1)%msgs.length;msg.textContent=msgs[i];},1500);
+  }
+}
+function hideLoader(){
+  var elapsed=Date.now()-_loaderShownAt;
+  var wait=Math.max(0,1400-elapsed);
+  if(_loaderMsgInterval){clearInterval(_loaderMsgInterval);_loaderMsgInterval=null;}
+  var o=document.getElementById("loaderOverlay");
+  var bar=document.getElementById("loaderBar");
+  var msg=document.getElementById("loaderMsg");
+  if(bar){bar.style.transition="width .3s";bar.style.width="100%";}
+  setTimeout(function(){
+    if(o)o.classList.remove("visible");
+    if(msg)msg.classList.remove("visible");
+    setTimeout(function(){if(bar){bar.style.transition="";bar.style.width="0";}},400);
+  },wait+250);
+}
+
+/* ---- PANEL FADE ---- */
+function animatePanel(id){var el=document.getElementById(id);if(el){el.style.animation="none";el.offsetHeight;el.style.animation="panelIn .25s ease";}}
+
+/* ---- PANEL OVERLAY WINDOWS ---- */
+var _overlayRenders={fav:renderFavsPanel,quests:renderQuestsPanel,butik:renderShopPanel,admin:renderAdminPanel,changelog:renderChangelogPanel};
+function openPanelOverlay(name){
+  closeSidebar();
+  var ov=document.getElementById(name+"Overlay");
+  if(!ov)return;
+  ov.classList.add("open");
+  document.body.style.overflow="hidden";
+  if(name==="discord"){
+    var fr=document.getElementById("discordFrame");
+    if(fr&&!fr.dataset.loaded){fr.src="https://mescord.jakobb.se";fr.dataset.loaded="1";}
+  }else if(_overlayRenders[name]){
+    setTimeout(_overlayRenders[name],10);
+  }
+}
+function openBrowser(type){
+  var _bTitles={ai:'🤖 Jakob AI',browser:'🌐 Browser',discord:'🟣 Discord'};
+  var _loaderTitles={ai:'Jakob AI',browser:'Browser',discord:'Discord'};
+  var bTitle=_bTitles[type]||'🌐 Browser';
+  showLoader(_loaderTitles[type]||'Loading');
+  setTimeout(function(){
+    var overlay=document.getElementById('browserOverlay');
+    var frame=document.getElementById('browserFrame');
+    var titleEl=document.getElementById('browserTitle');
+    var win=document.getElementById('browserWin');
+    if(!overlay)return;
+    if(titleEl)titleEl.textContent=bTitle;
+    if(win)win.classList.remove('bfull');
+    if(type==='ai'){if(win)win.classList.add('aiWin');}
+    else{if(win)win.classList.remove('aiWin');}
+    if(type==='discord'){if(win){win.style.width='min(1000px,96vw)';win.style.height='min(700px,90vh)';}}
+    else{if(win&&type!=='ai'){win.style.width='';win.style.height='';}}
+    overlay.classList.add('open');
+    frame.onload=function(){hideLoader();frame.onload=null;};
+    var srcMap={'ai':'UGS-Files/jakobai.html','browser':'UGS-Files/browser.html','discord':'UGS-Files/discord.html'};
+    frame.src=srcMap[type]||'UGS-Files/browser.html';
+  },80);
+}
+function closeBrowser(){
+  var overlay=document.getElementById('browserOverlay');
+  if(overlay)overlay.classList.remove('open');
+  var frame=document.getElementById('browserFrame');
+  if(frame)frame.src='';
+  var bw=document.getElementById('browserWin');if(bw)_resetWinPos(bw);
+}
+function toggleBrowserFull(){
+  var win=document.getElementById('browserWin');
+  var btn=document.getElementById('bFullBtn');
+  if(!win)return;
+  win.classList.toggle('bfull');
+  if(btn)btn.textContent=win.classList.contains('bfull')?'⤓':'⛶';
+}
+function openProfileOverlay(){
+  var ov=document.getElementById("profileOverlay");
+  if(!ov)return;
+  ov.style.display="flex";
+  setTimeout(function(){ov.classList.add("open");},10);
+  renderProfileOverlay();
+}
+function renderProfileOverlay(){
+  var el=document.getElementById("profileOverlayBody");
+  if(!el)return;
+  if(!state.user){
+    el.innerHTML="<div style='padding:32px;text-align:center'><p style='color:var(--d);margin-bottom:16px'>"+T("notLoggedFavs")+"</p><button class='pill primary' onclick='closeProfileOverlay();openLoginModal(false)' style='padding:10px 28px'>"+T("loginBtn")+"</button></div>";
+    return;
+  }
+  var av=localStorage.getItem("avatar_"+state.user)||"";
+  var favs=state.favorites.length;
+  var played=state.gamesPlayed||0;
+  var friends=JSON.parse(localStorage.getItem("friends_"+state.user)||"[]");
+  var friendsHTML="";
+  friends.forEach(function(fn){
+    friendsHTML+="<div class='friend-row'><span class='friend-name'>"+fn+"</span><button class='pill ghost rmfriend' data-fn='"+fn+"' style='font-size:11px;padding:4px 10px'>Remove</button></div>";
+  });
+  if(!friends.length)friendsHTML="<p style='color:var(--d);font-size:12px'>No friends yet.</p>";
+  var ava=av?"<img src='"+av+"' style='width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--p1);margin-bottom:10px'>":"<div style='width:80px;height:80px;border-radius:50%;background:var(--glass);border:3px solid var(--p1);display:inline-flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:10px'>&#128100;</div>";
+  el.innerHTML="<div class='profile-grid'><div>"
+    +"<div class='profile-card' style='text-align:center;margin-bottom:12px'>"+ava+"<div style='font-weight:800;font-size:18px;color:var(--w)'>"+state.user+"</div><div style='font-size:12px;color:var(--d)'>"+T("stat_level")+" "+state.level+"</div></div>"
+    +"<div class='profile-card' style='margin-bottom:12px'><h4>"+T("sett_account")+"</h4><div class='profile-stat-row'><div class='p-stat'><span>"+state.coins+"</span><small>"+T("stat_coins")+"</small></div><div class='p-stat'><span>"+favs+"</span><small>"+T("stat_favs")+"</small></div><div class='p-stat'><span>"+played+"</span><small>"+T("stat_played")+"</small></div></div>"
+    +"<button class='pill ghost' onclick='closeProfileOverlay();doLogout()' style='width:100%;justify-content:center;margin-top:4px'>"+T("sett_logout")+"</button></div>"
+    +"</div><div>"
+    +"<div class='profile-card' style='margin-bottom:12px'><h4>Friends</h4><div class='user-search-row'><input type='text' id='friendInput' class='formInput' placeholder='Add friend by username...' style='font-size:12px;padding:8px 10px'><button class='pill primary' onclick='addFriend()' style='padding:8px 14px;font-size:12px'>Add</button></div><div id='friendsList'>"+friendsHTML+"</div></div>"
+    +"<div class='profile-card'><h4>Browse Profiles</h4><div class='user-search-row'><input type='text' id='profileSearchInput' class='formInput' placeholder='Search username...' style='font-size:12px;padding:8px 10px' oninput='searchProfiles(this.value)'></div><div id='profileSearchResults'><p style='color:var(--d);font-size:12px'>Type to search...</p></div></div>"
+    +"</div></div>";
+  el.querySelectorAll(".rmfriend").forEach(function(btn){
+    btn.addEventListener("click",function(){removeFriend(this.dataset.fn);});
+  });
+}
+function closeProfileOverlay(){
+  var ov=document.getElementById("profileOverlay");
+  if(ov){ov.classList.remove("open");setTimeout(function(){ov.style.display="none";},250);}
+}
+function addFriend(){
+  var inp=document.getElementById("friendInput");if(!inp)return;
+  var name=inp.value.trim();if(!name||name===state.user)return;
+  var friends=JSON.parse(localStorage.getItem("friends_"+state.user)||"[]");
+  if(friends.indexOf(name)<0){friends.push(name);localStorage.setItem("friends_"+state.user,JSON.stringify(friends));}
+  inp.value="";renderProfileOverlay();
+}
+function removeFriend(name){
+  var friends=JSON.parse(localStorage.getItem("friends_"+state.user)||"[]");
+  localStorage.setItem("friends_"+state.user,JSON.stringify(friends.filter(function(f){return f!==name;})));
+  renderProfileOverlay();
+}
+function searchProfiles(q){
+  var el=document.getElementById("profileSearchResults");if(!el)return;
+  if(!q||q.length<2){el.innerHTML="<p style='color:var(--d);font-size:12px'>Type to search users...</p>";return;}
+  if(!_sb){el.innerHTML="<p style='color:var(--d);font-size:12px'>Not available offline</p>";return;}
+  _sb.from("accounts").select("username,is_admin").ilike("username","%"+q+"%").limit(8).then(function(res){
+    if(!res.data||!res.data.length){el.innerHTML="<p style='color:var(--d);font-size:12px'>No users found</p>";return;}
+    var h2="";var frs=JSON.parse(localStorage.getItem("friends_"+state.user)||"[]");
+    res.data.forEach(function(u){
+      var isFr=frs.indexOf(u.username)>=0;
+      h2+="<div class='friend-row'><span class='friend-name'>"+(u.is_admin?"&#128737; ":"")+u.username+"</span>"
+        +(state.user&&u.username!==state.user?"<button class='pill ghost srchbtn' data-un='"+u.username+"' data-isfriend='"+(isFr?1:0)+"' style='font-size:11px;padding:4px 10px'>"+(isFr?"Friend":"+ Add")+"</button>":"")+"</div>";
+    });
+    el.innerHTML=h2;
+    el.querySelectorAll(".srchbtn").forEach(function(btn){
+      btn.addEventListener("click",function(){
+        if(this.dataset.isfriend==="1"){removeFriend(this.dataset.un);}else{addFriendDirect(this.dataset.un);}
+        var qi=document.getElementById("profileSearchInput");if(qi)searchProfiles(qi.value);
+      });
+    });
+  });
+}
+function addFriendDirect(name){
+  var friends=JSON.parse(localStorage.getItem("friends_"+state.user)||"[]");
+  if(friends.indexOf(name)<0){friends.push(name);localStorage.setItem("friends_"+state.user,JSON.stringify(friends));}
+  renderProfileOverlay();
+}
+function openDiscord(){
+  openBrowser('discord');
+}
+function closePanelOverlay(name){
+  var ov=document.getElementById(name+"Overlay");
+  if(ov){var pw=ov.querySelector('.panelWin');if(pw)_resetWinPos(pw);ov.classList.remove("open");}
+  document.body.style.overflow="";
+}
+
+function viewProfile(username){
+  var title=document.getElementById("profileOverlayTitle");
+  var body=document.getElementById("profileOverlayBody");
+  if(!title||!body)return;
+  title.textContent="👤 "+username;
+  var av=localStorage.getItem("avatar_"+username)||"";
+  var data=JSON.parse(localStorage.getItem("jspel_"+username)||"{}");
+  var coins=data.coins||0,xp=data.xp||0,level=data.level||1,played=data.gamesPlayed||0;
+  var owned=JSON.parse(localStorage.getItem("owned_"+username)||"[]");
+  var themes=owned.filter(function(o){return o.startsWith("theme_");}).map(function(o){return o.replace("theme_","");});
+  var isAdmin=JSON.parse(localStorage.getItem("adminList")||'["jakob123"]').indexOf(username)>=0;
+  body.innerHTML=(av
+    ?'<img src="'+av+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--p1);margin-bottom:12px">'
+    :'<div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--p2),var(--p0));display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:#fff;margin:0 auto 12px">'+username.charAt(0).toUpperCase()+'</div>'
+  )
+  +'<div style="font-size:18px;font-weight:800;color:var(--w);margin-bottom:4px">'+username+(isAdmin?' <span style="font-size:11px;color:var(--p1);background:rgba(181,108,255,.15);padding:2px 7px;border-radius:20px">Admin</span>':'')+'</div>'
+  +'<div style="display:flex;gap:16px;justify-content:center;margin:16px 0">'
+  +'<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:var(--p1)">'+level+'</div><div style="font-size:10px;color:var(--d)">Level</div></div>'
+  +'<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:var(--p1)">'+xp+'</div><div style="font-size:10px;color:var(--d)">XP</div></div>'
+  +'<div style="text-align:center"><div style="font-size:20px;font-weight:800;color:var(--p1)">'+played+'</div><div style="font-size:10px;color:var(--d)">Spel</div></div>'
+  +'</div>'
+  +(themes.length?'<div style="font-size:11px;color:var(--d);margin-top:4px">Teman: '+themes.join(", ")+'</div>':'');
+  openPanelOverlay("profile");
+}
+
+var GAMES=[{"f":"Dragonxclient.html","name":"Dragonxclient"},{"f":"Eaglercraft-Alpha-1.2.6-Offline.html","name":"Eaglercraft- Alpha-1.2.6- Offline"},{"f":"Eaglercraft-Beta-1.3-Offline.html","name":"Eaglercraft- Beta-1.3- Offline"},{"f":"Eaglercraft-Indev-Offline (1).html","name":"Eaglercraft- Indev- Offline (1)"},{"f":"Eaglercraft-Indev-Offline.html","name":"Eaglercraft- Indev- Offline"},{"f":"EaglercraftL_1.9_v0_7_0_Offline_Signed.html","name":"Eaglercraft L_1.9_v0_7_0_ Offline_ Signed"},{"f":"EaglercraftX 1.8.8(u29).html","name":"Eaglercraft X 1.8.8(u29)"},{"f":"EaglercraftZ_1.11.2.html","name":"Eaglercraft Z_1.11.2"},{"f":"Helios-Offline (1).html","name":"Helios- Offline (1)"},{"f":"Minceraft-I-NotMine_V6.html","name":"Minceraft- I- Not Mine_ V6"},{"f":"cl1.html","name":"cl1"},{"f":"cl10bullets.html","name":"cl10bullets"},{"f":"cl10minutestildawn.html","name":"cl10minutestildawn"},{"f":"cl12minibattles.html","name":"cl12minibattles"},{"f":"cl1on1soccer.html","name":"cl1on1soccer"},{"f":"cl1v1lol.html","name":"cl1v1lol"},{"f":"cl1v1tennis.html","name":"cl1v1tennis"},{"f":"cl2048.html","name":"cl2048"},{"f":"cl2048cupcakes.html","name":"cl2048cupcakes"},{"f":"cl2Dshooting.html","name":"cl2 Dshooting"},{"f":"cl2doom.html","name":"cl2doom"},{"f":"cl3dash.html","name":"cl3dash"},{"f":"cl3pandas.html","name":"cl3pandas"},{"f":"cl3pandasbrazil.html","name":"cl3pandasbrazil"},{"f":"cl3pandasfantasy.html","name":"cl3pandasfantasy"},{"f":"cl3pandasjapan.html","name":"cl3pandasjapan"},{"f":"cl3pandasnight.html","name":"cl3pandasnight"},{"f":"cl3slices2.html","name":"cl3slices2"},{"f":"cl40xescape.html","name":"cl40xescape"},{"f":"cl4thandgoal.html","name":"cl4thandgoal"},{"f":"cl500calibercontractz.html","name":"cl500calibercontractz"},{"f":"cl60secondsburgerrun.html","name":"cl60secondsburgerrun"},{"f":"cl60secondssantarun.html","name":"cl60secondssantarun"},{"f":"cl8ballclassic.html","name":"cl8ballclassic"},{"f":"cl8ballpool.html","name":"cl8ballpool"},{"f":"cl9007199254740992.html","name":"cl9007199254740992"},{"f":"cl99balls.html","name":"cl99balls"},{"f":"cl99nightsitf.html","name":"cl99nightsitf"},{"f":"clADOFAI.html","name":"cl A D O F A I"},{"f":"clADarkRoom.html","name":"cl A Dark Room"},{"f":"clAdventureCapatalist.html","name":"cl Adventure Capatalist"},{"f":"clAwesomePirates.html","name":"cl Awesome Pirates"},{"f":"clB3313.html","name":"cl B3313"},{"f":"clBBB.html","name":"cl B B B"},{"f":"clBMX2.html","name":"cl B M X2"},{"f":"clBTD1.html","name":"cl B T D1"},{"f":"clBig_Time_Butter_Baron.html","name":"cl Big_ Time_ Butter_ Baron"},{"f":"clBountyOfOne.html","name":"cl Bounty Of One"},{"f":"clCartoonNetworkTableTennisUltimateTournament.html","name":"cl Cartoon Network Table Tennis Ultimate Tournament"},{"f":"clCircloO2.html","name":"cl Circlo O2"},{"f":"clDragonBallZTheLegacyofGoku.html","name":"cl Dragon Ball Z The Legacyof Goku"},{"f":"clDragonQuestIX.html","name":"cl Dragon Quest I X"},{"f":"clFF3.html","name":"cl F F3"},{"f":"clFFsonic1.html","name":"cl F Fsonic1"},{"f":"clFFsonic2.html","name":"cl F Fsonic2"},{"f":"clFFsonic3.html","name":"cl F Fsonic3"},{"f":"clFFsonic4.html","name":"cl F Fsonic4"},{"f":"clFFsonic5.html","name":"cl F Fsonic5"},{"f":"clFFsonic61.html","name":"cl F Fsonic61"},{"f":"clFFsonic62.html","name":"cl F Fsonic62"},{"f":"clFIFA07.html","name":"cl F I F A07"},{"f":"clFIFA10.html","name":"cl F I F A10"},{"f":"clFIFA11.html","name":"cl F I F A11"},{"f":"clFIFA2000(1).html","name":"cl F I F A2000(1)"},{"f":"clFIFA99.html","name":"cl F I F A99"},{"f":"clFIFAinternationalsoccer.html","name":"cl F I F Ainternationalsoccer"},{"f":"clFIFAroadtoworldcup98.html","name":"cl F I F Aroadtoworldcup98"},{"f":"clFIFAsoccer06.html","name":"cl F I F Asoccer06"},{"f":"clFIFAsoccer95.html","name":"cl F I F Asoccer95"},{"f":"clFIFAsoccer96.html","name":"cl F I F Asoccer96"},{"f":"clFIFAsoccer97.html","name":"cl F I F Asoccer97"},{"f":"clFIFAstreet2.html","name":"cl F I F Astreet2"},{"f":"clFNAF.html","name":"cl F N A F"},{"f":"clFNAF2.html","name":"cl F N A F2"},{"f":"clFNAF3.html","name":"cl F N A F3"},{"f":"clFNAF4.html","name":"cl F N A F4"},{"f":"clGettothetopalthoughthereisnotop.html","name":"cl Gettothetopalthoughthereisnotop"},{"f":"clGoldenSunTheLostAge.html","name":"cl Golden Sun The Lost Age"},{"f":"clHaroldsbadday.html","name":"cl Haroldsbadday"},{"f":"clHiNoHomo.html","name":"cl Hi No Homo"},{"f":"clJUMP.html","name":"cl J U M P"},{"f":"clKenGriffeyJrPresentsMajorLeagueBaseball.html","name":"cl Ken Griffey Jr Presents Major League Baseball"},{"f":"clMarioisMissingDoneRight.html","name":"cl Mariois Missing Done Right"},{"f":"clMetalSonicHyperdrive.html","name":"cl Metal Sonic Hyperdrive"},{"f":"clNBAhangtime.html","name":"cl N B Ahangtime"},{"f":"clNBAjam.html","name":"cl N B Ajam"},{"f":"clNautilusOS.html","name":"cl Nautilus O S"},{"f":"clNewSuperMarioWorld2AroundtheWorld.html","name":"cl New Super Mario World2 Aroundthe World"},{"f":"clNicktoonsFreezeFrameFrenzy.html","name":"cl Nicktoons Freeze Frame Frenzy"},{"f":"clNutsandBoltsScrewingPuzzle.html","name":"cl Nutsand Bolts Screwing Puzzle"},{"f":"clPokemonemeraldrouge.html","name":"cl Pokemonemeraldrouge"},{"f":"clPokemonrocketedition.html","name":"cl Pokemonrocketedition"},{"f":"clPokémonstunningsteel.html","name":"cl Pokémonstunningsteel"},{"f":"clSINGLEFILE.html","name":"cl S I N G L E F I L E"},{"f":"clSonic1ScoreRush.html","name":"cl Sonic1 Score Rush"},{"f":"clSonic2ScoreRush.html","name":"cl Sonic2 Score Rush"},{"f":"clSonicHellfireSaga.html","name":"cl Sonic Hellfire Saga"},{"f":"clStickmanKingdomclash.html","name":"cl Stickman Kingdomclash"},{"f":"clSuperMarioWorldThe SecretOfThe7GoldenStatues.html","name":"cl Super Mario World The  Secret Of The7 Golden Statues"},{"f":"clTaikonoTatsujin.html","name":"cl Taikono Tatsujin"},{"f":"clUZG.html","name":"cl U Z G"},{"f":"clUltimatecardrivingsimulator.html","name":"cl Ultimatecardrivingsimulator"},{"f":"clXevious.html","name":"cl Xevious"},{"f":"clYoshisStrangeQuest.html","name":"cl Yoshis Strange Quest"},{"f":"clabandoned3.html","name":"clabandoned3"},{"f":"clabsolutemadness.html","name":"clabsolutemadness"},{"f":"clacecombat2.html","name":"clacecombat2"},{"f":"clacecombat3.html","name":"clacecombat3"},{"f":"clacegangstertaxi.html","name":"clacegangstertaxi"},{"f":"clachievementunlocked.html","name":"clachievementunlocked"},{"f":"clachievmentunlocked.html","name":"clachievmentunlocked"},{"f":"clachievmentunlocked2.html","name":"clachievmentunlocked2"},{"f":"clachievmentunlocked3.html","name":"clachievmentunlocked3"},{"f":"clachillies.html","name":"clachillies"},{"f":"clachillies2.html","name":"clachillies2"},{"f":"cladayintheoffice.html","name":"cladayintheoffice"},{"f":"cladvancewars.html","name":"cladvancewars"},{"f":"cladvancewars2.html","name":"cladvancewars2"},{"f":"cladventneon.html","name":"cladventneon"},{"f":"cladventurecapitalist.html","name":"cladventurecapitalist"},{"f":"clagariolite.html","name":"clagariolite"},{"f":"clageofwar.html","name":"clageofwar"},{"f":"clageofwar2.html","name":"clageofwar2"},{"f":"clagesofconflict.html","name":"clagesofconflict"},{"f":"clahoysurvival.html","name":"clahoysurvival"},{"f":"clai.html","name":"clai"},{"f":"clakoopasrevenge.html","name":"clakoopasrevenge"},{"f":"clakoopasrevenge2.html","name":"clakoopasrevenge2"},{"f":"clakumanorgaiden.html","name":"clakumanorgaiden"},{"f":"clalgebra.html","name":"clalgebra"},{"f":"clalienhominid.html","name":"clalienhominid"},{"f":"clalienhominidgba.html","name":"clalienhominidgba"},{"f":"clalienskyinvasion.html","name":"clalienskyinvasion"},{"f":"clalientransporter.html","name":"clalientransporter"},{"f":"clalienvspredator.html","name":"clalienvspredator"},{"f":"clallbossesin1.html","name":"clallbossesin1"},{"f":"clallocation.html","name":"clallocation"},{"f":"clamaze.html","name":"clamaze"},{"f":"clamidstthesky.html","name":"clamidstthesky"},{"f":"clamigopancho.html","name":"clamigopancho"},{"f":"clamigopancho2.html","name":"clamigopancho2"},{"f":"clamigopancho3.html","name":"clamigopancho3"},{"f":"clamigopancho4.html","name":"clamigopancho4"},{"f":"clamigopancho5.html","name":"clamigopancho5"},{"f":"clamigopancho6.html","name":"clamigopancho6"},{"f":"clamigopancho7.html","name":"clamigopancho7"},{"f":"clamongus.html","name":"clamongus"},{"f":"clamorphous.html","name":"clamorphous"},{"f":"clancientsins.html","name":"clancientsins"},{"f":"clangry-birdsspace.html","name":"clangry-birdsspace"},{"f":"clangrybirds-space.html","name":"clangrybirds-space"},{"f":"clangrybirds.html","name":"clangrybirds"},{"f":"clangrybirdsshowdown.html","name":"clangrybirdsshowdown"},{"f":"clangrybirdsspace.html","name":"clangrybirdsspace"},{"f":"clanimalcrossingwildworld.html","name":"clanimalcrossingwildworld"},{"f":"clanotherworld.html","name":"clanotherworld"},{"f":"clapotris.html","name":"clapotris"},{"f":"clappleshooter.html","name":"clappleshooter"},{"f":"clappleworm.html","name":"clappleworm"},{"f":"claquaparkio.html","name":"claquaparkio"},{"f":"clarceuslegend.html","name":"clarceuslegend"},{"f":"clarcheryworldtour.html","name":"clarcheryworldtour"},{"f":"clarena.html","name":"clarena"},{"f":"clarmormayhem2.html","name":"clarmormayhem2"},{"f":"clarsonate.html","name":"clarsonate"},{"f":"clascent.html","name":"clascent"},{"f":"clasmallworldcup.html","name":"clasmallworldcup"},{"f":"classesmentexaminationque.html","name":"classesmentexaminationque"},{"f":"clasteroids.html","name":"clasteroids"},{"f":"clasteroidsALT.html","name":"clasteroids A L T"},{"f":"clattackhole.html","name":"clattackhole"},{"f":"clavalanche.html","name":"clavalanche"},{"f":"claviamasters.html","name":"claviamasters"},{"f":"claviamastersbuggy.html","name":"claviamastersbuggy"},{"f":"clawesomeplanes.html","name":"clawesomeplanes"},{"f":"clawesometanks.html","name":"clawesometanks"},{"f":"clawesometanks2.html","name":"clawesometanks2"},{"f":"clbabeltower.html","name":"clbabeltower"},{"f":"clbabychiccoadventure.html","name":"clbabychiccoadventure"},{"f":"clbabykaizo.html","name":"clbabykaizo"},{"f":"clbabysniperinvietnam.html","name":"clbabysniperinvietnam"},{"f":"clbackrooms.html","name":"clbackrooms"},{"f":"clbackrooms2D.html","name":"clbackrooms2 D"},{"f":"clbackyardbaseball.html","name":"clbackyardbaseball"},{"f":"clbackyardbaseball09.html","name":"clbackyardbaseball09"},{"f":"clbackyardbaseball10.html","name":"clbackyardbaseball10"},{"f":"clbackyardsoccer.html","name":"clbackyardsoccer"},{"f":"clbaconmaydie.html","name":"clbaconmaydie"},{"f":"clbadbodyguards.html","name":"clbadbodyguards"},{"f":"clbadicecream.html","name":"clbadicecream"},{"f":"clbadmondaysimulator.html","name":"clbadmondaysimulator"},{"f":"clbadparenting.html","name":"clbadparenting"},{"f":"clbadpiggies.html","name":"clbadpiggies"},{"f":"clbadtimesim.html","name":"clbadtimesim"},{"f":"clbadtimesimulator.html","name":"clbadtimesimulator"},{"f":"clbaldidecomp.html","name":"clbaldidecomp"},{"f":"clbaldisbasics.html","name":"clbaldisbasics"},{"f":"clbaldisbasicsremaster.html","name":"clbaldisbasicsremaster"},{"f":"clbaldisfunnewschoolultimate.html","name":"clbaldisfunnewschoolultimate"},{"f":"clballblast.html","name":"clballblast"},{"f":"clballsandbricks.html","name":"clballsandbricks"},{"f":"clballsandbricksgood.html","name":"clballsandbricksgood"},{"f":"clbananasimulator.html","name":"clbananasimulator"},{"f":"clbanditgunslingers.html","name":"clbanditgunslingers"},{"f":"clbanjokazooie.html","name":"clbanjokazooie"},{"f":"clbanjotooie.html","name":"clbanjotooie"},{"f":"clbankbreakout2.html","name":"clbankbreakout2"},{"f":"clbankrobbery2.html","name":"clbankrobbery2"},{"f":"clbarryhasasecret.html","name":"clbarryhasasecret"},{"f":"clbas.html","name":"clbas"},{"f":"clbaseballbros.html","name":"clbaseballbros"},{"f":"clbasketballfrvr.html","name":"clbasketballfrvr"},{"f":"clbasketballlegends.html","name":"clbasketballlegends"},{"f":"clbasketballstars.html","name":"clbasketballstars"},{"f":"clbasketbattle.html","name":"clbasketbattle"},{"f":"clbasketbros.html","name":"clbasketbros"},{"f":"clbasketrandom.html","name":"clbasketrandom"},{"f":"clbasketrandomgood.html","name":"clbasketrandomgood"},{"f":"clbasketslamdunk2.html","name":"clbasketslamdunk2"},{"f":"clbatterup.html","name":"clbatterup"},{"f":"clbattlekarts.html","name":"clbattlekarts"},{"f":"clbattles.html","name":"clbattles"},{"f":"clbattlesim.html","name":"clbattlesim"},{"f":"clbattlezone.html","name":"clbattlezone"},{"f":"clbazookaboy.html","name":"clbazookaboy"},{"f":"clbballlegend.html","name":"clbballlegend"},{"f":"clbeachboxingsim.html","name":"clbeachboxingsim"},{"f":"clbeamrider.html","name":"clbeamrider"},{"f":"clbearbarians.html","name":"clbearbarians"},{"f":"clbearsus.html","name":"clbearsus"},{"f":"clben10alienforce.html","name":"clben10alienforce"},{"f":"clben10omniverse.html","name":"clben10omniverse"},{"f":"clben10protector.html","name":"clben10protector"},{"f":"clben10racing.html","name":"clben10racing"},{"f":"clben10ultimatealien.html","name":"clben10ultimatealien"},{"f":"clbergentruck201x.html","name":"clbergentruck201x"},{"f":"clbfdia5b.html","name":"clbfdia5b"},{"f":"clbigicetowertinysquare.html","name":"clbigicetowertinysquare"},{"f":"clbigneontowertinysquare.html","name":"clbigneontowertinysquare"},{"f":"clbigshotboxing2.html","name":"clbigshotboxing2"},{"f":"clbigtowertinysquare.html","name":"clbigtowertinysquare"},{"f":"clbigtowertinysquare2.html","name":"clbigtowertinysquare2"},{"f":"clbigtowertinysquare2good.html","name":"clbigtowertinysquare2good"},{"f":"clbindingofisaccsheeptime.html","name":"clbindingofisaccsheeptime"},{"f":"clbioevil4.html","name":"clbioevil4"},{"f":"clbitlife.html","name":"clbitlife"},{"f":"clbitlifeencrypted.html","name":"clbitlifeencrypted"},{"f":"clbitplanes.html","name":"clbitplanes"},{"f":"clblackjack.html","name":"clblackjack"},{"f":"clblackjackbattle.html","name":"clblackjackbattle"},{"f":"clblackjackhhhh.html","name":"clblackjackhhhh"},{"f":"clblacksmithlab.html","name":"clblacksmithlab"},{"f":"clblastronaut.html","name":"clblastronaut"},{"f":"clblazedrifter.html","name":"clblazedrifter"},{"f":"clbleachvsnaruto.html","name":"clbleachvsnaruto"},{"f":"clblightborne.html","name":"clblightborne"},{"f":"clblobsstory2.html","name":"clblobsstory2"},{"f":"clblockblast.html","name":"clblockblast"},{"f":"clblockcraftparkour.html","name":"clblockcraftparkour"},{"f":"clblockcraftshooter.html","name":"clblockcraftshooter"},{"f":"clblockpost.html","name":"clblockpost"},{"f":"clblockthepig.html","name":"clblockthepig"},{"f":"clblockydemolitionderby.html","name":"clblockydemolitionderby"},{"f":"clblockysnakes.html","name":"clblockysnakes"},{"f":"clbloodmoney.html","name":"clbloodmoney"},{"f":"clbloodtournament.html","name":"clbloodtournament"},{"f":"clbloons.html","name":"clbloons"},{"f":"clbloons2.html","name":"clbloons2"},{"f":"clbloonsTD1.html","name":"clbloons T D1"},{"f":"clbloonsTD2.html","name":"clbloons T D2"},{"f":"clbloonsTD3.html","name":"clbloons T D3"},{"f":"clbloonsTD4.html","name":"clbloons T D4"},{"f":"clbloonsTD5.html","name":"clbloons T D5"},{"f":"clbloonsTD6scratch.html","name":"clbloons T D6scratch"},{"f":"clbloonspp1.html","name":"clbloonspp1"},{"f":"clbloonspp2.html","name":"clbloonspp2"},{"f":"clbloonspp3.html","name":"clbloonspp3"},{"f":"clbloonspp4.html","name":"clbloonspp4"},{"f":"clbloonspp5.html","name":"clbloonspp5"},{"f":"clbloxorz.html","name":"clbloxorz"},{"f":"clblumgiracers.html","name":"clblumgiracers"},{"f":"clbntts.html","name":"clbntts"},{"f":"clbobtherobber.html","name":"clbobtherobber"},{"f":"clbobtherobber2.html","name":"clbobtherobber2"},{"f":"clbobtherobber5.html","name":"clbobtherobber5"},{"f":"clbollybeat.html","name":"clbollybeat"},{"f":"clbomberman.html","name":"clbomberman"},{"f":"clbomberman2.html","name":"clbomberman2"},{"f":"clbombermanhero.html","name":"clbombermanhero"},{"f":"clboomslingers.html","name":"clboomslingers"},{"f":"clbottlecracks.html","name":"clbottlecracks"},{"f":"clbottleflip3d.html","name":"clbottleflip3d"},{"f":"clbounceback.html","name":"clbounceback"},{"f":"clbouncemasters.html","name":"clbouncemasters"},{"f":"clbouncymotors.html","name":"clbouncymotors"},{"f":"clbowlalt.html","name":"clbowlalt"},{"f":"clboxhead2playrooms.html","name":"clboxhead2playrooms"},{"f":"clboxheadnightmare.html","name":"clboxheadnightmare"},{"f":"clboxinglive-2.html","name":"clboxinglive-2"},{"f":"clboxinglive2.html","name":"clboxinglive2"},{"f":"clboxingrandom.html","name":"clboxingrandom"},{"f":"clbrainrot.html","name":"clbrainrot"},{"f":"clbridgerace.html","name":"clbridgerace"},{"f":"clbtd5.html","name":"clbtd5"},{"f":"clbtts.html","name":"clbtts"},{"f":"clbtts2.html","name":"clbtts2"},{"f":"clbubbleshooter.html","name":"clbubbleshooter"},{"f":"clbubbleshooterpirate.html","name":"clbubbleshooterpirate"},{"f":"clbubbletanks.html","name":"clbubbletanks"},{"f":"clbubbletanks2.html","name":"clbubbletanks2"},{"f":"clbubbletanks3.html","name":"clbubbletanks3"},{"f":"clbubbletanksarenas.html","name":"clbubbletanksarenas"},{"f":"clbubbletankstd.html","name":"clbubbletankstd"},{"f":"clbubsy.html","name":"clbubsy"},{"f":"clbuckshotroulette.html","name":"clbuckshotroulette"},{"f":"clbuildnowgg.html","name":"clbuildnowgg"},{"f":"clbunnyland.html","name":"clbunnyland"},{"f":"clburgerandfrights.html","name":"clburgerandfrights"},{"f":"clburritobison.html","name":"clburritobison"},{"f":"clburritobison2.html","name":"clburritobison2"},{"f":"clburritobisonlaunchalibre.html","name":"clburritobisonlaunchalibre"},{"f":"clburritobisonrevenge.html","name":"clburritobisonrevenge"},{"f":"clbushidoblade.html","name":"clbushidoblade"},{"f":"clcactusmccoy.html","name":"clcactusmccoy"},{"f":"clcactusmccoy2.html","name":"clcactusmccoy2"},{"f":"clcannonballs3d.html","name":"clcannonballs3d"},{"f":"clcannonfodder.html","name":"clcannonfodder"},{"f":"clcapybaraclicker.html","name":"clcapybaraclicker"},{"f":"clcarcrash3.html","name":"clcarcrash3"},{"f":"clcardrawing.html","name":"clcardrawing"},{"f":"clcareatscar2deluxe.html","name":"clcareatscar2deluxe"},{"f":"clcarkingarena.html","name":"clcarkingarena"},{"f":"clcarmods.html","name":"clcarmods"},{"f":"clcarstuntsdriving.html","name":"clcarstuntsdriving"},{"f":"clcastlebloodline.html","name":"clcastlebloodline"},{"f":"clcastlecircleofmoon.html","name":"clcastlecircleofmoon"},{"f":"clcastlevania.html","name":"clcastlevania"},{"f":"clcastlevania2.html","name":"clcastlevania2"},{"f":"clcastlevania3.html","name":"clcastlevania3"},{"f":"clcastlevaniaariaofsorrow.html","name":"clcastlevaniaariaofsorrow"},{"f":"clcastlevaniadawnofsorrow.html","name":"clcastlevaniadawnofsorrow"},{"f":"clcastlevanianes.html","name":"clcastlevanianes"},{"f":"clcastlewarsmodern.html","name":"clcastlewarsmodern"},{"f":"clcatmario.html","name":"clcatmario"},{"f":"clcatmariogood.html","name":"clcatmariogood"},{"f":"clcatslovecake2.html","name":"clcatslovecake2"},{"f":"clcavestory.html","name":"clcavestory"},{"f":"clceleste.html","name":"clceleste"},{"f":"clceleste2.html","name":"clceleste2"},{"f":"clcellardoor.html","name":"clcellardoor"},{"f":"clchaosfaction2.html","name":"clchaosfaction2"},{"f":"clcheckers.html","name":"clcheckers"},{"f":"clcheesechompers3d.html","name":"clcheesechompers3d"},{"f":"clcheshireinachatroom.html","name":"clcheshireinachatroom"},{"f":"clchess.html","name":"clchess"},{"f":"clchessclassic.html","name":"clchessclassic"},{"f":"clchibiknight.html","name":"clchibiknight"},{"f":"clchickenscream.html","name":"clchickenscream"},{"f":"clchickenwar.html","name":"clchickenwar"},{"f":"clchipschallenge.html","name":"clchipschallenge"},{"f":"clchoppyorc.html","name":"clchoppyorc"},{"f":"clchronotrigger.html","name":"clchronotrigger"},{"f":"clchuzzle.html","name":"clchuzzle"},{"f":"clciviballs.html","name":"clciviballs"},{"f":"clciviballs2.html","name":"clciviballs2"},{"f":"clclashofvikings.html","name":"clclashofvikings"},{"f":"clclassof09.html","name":"clclassof09"},{"f":"clcleanupio.html","name":"clcleanupio"},{"f":"clclearvision.html","name":"clclearvision"},{"f":"clclearvision2.html","name":"clclearvision2"},{"f":"clclearvision3.html","name":"clclearvision3"},{"f":"clclearvision4.html","name":"clclearvision4"},{"f":"clclearvision5.html","name":"clclearvision5"},{"f":"clclmadnessambulation.html","name":"clclmadnessambulation"},{"f":"clclubbytheseal.html","name":"clclubbytheseal"},{"f":"clclusterrush.html","name":"clclusterrush"},{"f":"clcoalllcdemo.html","name":"clcoalllcdemo"},{"f":"clcod4.html","name":"clcod4"},{"f":"clcodblackopp.html","name":"clcodblackopp"},{"f":"clcoddefiance.html","name":"clcoddefiance"},{"f":"clcodenamegordon.html","name":"clcodenamegordon"},{"f":"clcodmodernwarfare.html","name":"clcodmodernwarfare"},{"f":"clcodworldatwar.html","name":"clcodworldatwar"},{"f":"clcoffeemaker.html","name":"clcoffeemaker"},{"f":"clcolorburst3d.html","name":"clcolorburst3d"},{"f":"clcolormatch.html","name":"clcolormatch"},{"f":"clcolorwatersort3d.html","name":"clcolorwatersort3d"},{"f":"clcombopool.html","name":"clcombopool"},{"f":"clcommanderkeen4.html","name":"clcommanderkeen4"},{"f":"clcommanderkeen5.html","name":"clcommanderkeen5"},{"f":"clcommanderkeen6.html","name":"clcommanderkeen6"},{"f":"clconkersbadfurday.html","name":"clconkersbadfurday"},{"f":"clcontra.html","name":"clcontra"},{"f":"clcontra3.html","name":"clcontra3"},{"f":"clcookie-clicker.html","name":"clcookie-clicker"},{"f":"clcookieclicker.html","name":"clcookieclicker"},{"f":"clcookieclickercool.html","name":"clcookieclickercool"},{"f":"clcookieclickergood.html","name":"clcookieclickergood"},{"f":"clcookingmama.html","name":"clcookingmama"},{"f":"clcookingmama2.html","name":"clcookingmama2"},{"f":"clcookingmama3.html","name":"clcookingmama3"},{"f":"clcoreball.html","name":"clcoreball"},{"f":"clcotlk.html","name":"clcotlk"},{"f":"clcountmastersstickmangames.html","name":"clcountmastersstickmangames"},{"f":"clcoverorange.html","name":"clcoverorange"},{"f":"clcoverorange2.html","name":"clcoverorange2"},{"f":"clcoverorangejourneygangsters.html","name":"clcoverorangejourneygangsters"},{"f":"clcoverorangejourneyknights.html","name":"clcoverorangejourneyknights"},{"f":"clcoverorangejourneypirates.html","name":"clcoverorangejourneypirates"},{"f":"clcoverorangejourneyspace.html","name":"clcoverorangejourneyspace"},{"f":"clcoverorangeplayerspack.html","name":"clcoverorangeplayerspack"},{"f":"clcoverorangeplayerspack2.html","name":"clcoverorangeplayerspack2"},{"f":"clcoverorangeplayerspack3.html","name":"clcoverorangeplayerspack3"},{"f":"clcrankit!.html","name":"clcrankit!"},{"f":"clcrashbandicoot.html","name":"clcrashbandicoot"},{"f":"clcrashbandicoot2.html","name":"clcrashbandicoot2"},{"f":"clcrashteamracing.html","name":"clcrashteamracing"},{"f":"clcrazycars.html","name":"clcrazycars"},{"f":"clcrazycattle3d.html","name":"clcrazycattle3d"},{"f":"clcrazychicken3D.html","name":"clcrazychicken3 D"},{"f":"clcrazyfrogracer.html","name":"clcrazyfrogracer"},{"f":"clcrazymotorcycle.html","name":"clcrazymotorcycle"},{"f":"clcreeperworld2.html","name":"clcreeperworld2"},{"f":"clcrossyroad.html","name":"clcrossyroad"},{"f":"clcrunchball3000.html","name":"clcrunchball3000"},{"f":"clcs1.6.html","name":"clcs1.6"},{"f":"clcsds.html","name":"clcsds"},{"f":"clcsgoclicker.html","name":"clcsgoclicker"},{"f":"clctgpnitro.html","name":"clctgpnitro"},{"f":"clcurveball.html","name":"clcurveball"},{"f":"clcuttherope.html","name":"clcuttherope"},{"f":"clcuttheropetimetravel.html","name":"clcuttheropetimetravel"},{"f":"clcyberbungracing.html","name":"clcyberbungracing"},{"f":"clcybersensation.html","name":"clcybersensation"},{"f":"cldadgame.html","name":"cldadgame"},{"f":"cldadnme.html","name":"cldadnme"},{"f":"cldaggerfall.html","name":"cldaggerfall"},{"f":"cldanktomb.html","name":"cldanktomb"},{"f":"cldborigins.html","name":"cldborigins"},{"f":"cldborigins2.html","name":"cldborigins2"},{"f":"cldbsniper.html","name":"cldbsniper"},{"f":"cldbzattacksaiyans.html","name":"cldbzattacksaiyans"},{"f":"cldbzdevolution.html","name":"cldbzdevolution"},{"f":"cldbzsuperwarriorssonic.html","name":"cldbzsuperwarriorssonic"},{"f":"cldeadestate.html","name":"cldeadestate"},{"f":"cldeadlydescent.html","name":"cldeadlydescent"},{"f":"cldeadplate.html","name":"cldeadplate"},{"f":"cldeadzed.html","name":"cldeadzed"},{"f":"cldeadzed2.html","name":"cldeadzed2"},{"f":"cldeathchase.html","name":"cldeathchase"},{"f":"cldeblob2.html","name":"cldeblob2"},{"f":"cldecision.html","name":"cldecision"},{"f":"cldecision2.html","name":"cldecision2"},{"f":"cldecision3.html","name":"cldecision3"},{"f":"cldecisionmedieval.html","name":"cldecisionmedieval"},{"f":"cldeepersleep.html","name":"cldeepersleep"},{"f":"cldeepestsword.html","name":"cldeepestsword"},{"f":"cldeepsleep.html","name":"cldeepsleep"},{"f":"cldefendyourcastle.html","name":"cldefendyourcastle"},{"f":"cldefendyournuts.html","name":"cldefendyournuts"},{"f":"cldefendyournuts2.html","name":"cldefendyournuts2"},{"f":"cldeltarune.html","name":"cldeltarune"},{"f":"cldeltatraveler.html","name":"cldeltatraveler"},{"f":"cldementium.html","name":"cldementium"},{"f":"cldemolitionderbycrashracing.html","name":"cldemolitionderbycrashracing"},{"f":"cldiablo.html","name":"cldiablo"},{"f":"cldiamondhollow.html","name":"cldiamondhollow"},{"f":"cldiamondhollow2.html","name":"cldiamondhollow2"},{"f":"cldiddykong-racing.html","name":"cldiddykong-racing"},{"f":"cldieinthedungeon.html","name":"cldieinthedungeon"},{"f":"cldigdeep.html","name":"cldigdeep"},{"f":"cldigdug.html","name":"cldigdug"},{"f":"cldigdug2.html","name":"cldigdug2"},{"f":"cldigdug26.html","name":"cldigdug26"},{"f":"cldigtochina.html","name":"cldigtochina"},{"f":"cldinodudes.html","name":"cldinodudes"},{"f":"cldiredecks.html","name":"cldiredecks"},{"f":"cldoblox.html","name":"cldoblox"},{"f":"cldogeminer.html","name":"cldogeminer"},{"f":"cldogeminer2.html","name":"cldogeminer2"},{"f":"cldokidokiliteratureclub.html","name":"cldokidokiliteratureclub"},{"f":"cldonkeykong.html","name":"cldonkeykong"},{"f":"cldonkeykong64.html","name":"cldonkeykong64"},{"f":"cldonkeykongcountry.html","name":"cldonkeykongcountry"},{"f":"cldonkeykongcountry2.html","name":"cldonkeykongcountry2"},{"f":"cldonkeykongcountry3.html","name":"cldonkeykongcountry3"},{"f":"cldonkeykongnes.html","name":"cldonkeykongnes"},{"f":"cldontescape.html","name":"cldontescape"},{"f":"cldontescape2.html","name":"cldontescape2"},{"f":"cldontescape3.html","name":"cldontescape3"},{"f":"cldoodlejump.html","name":"cldoodlejump"},{"f":"cldoodlejumpgoober.html","name":"cldoodlejumpgoober"},{"f":"cldoom.html","name":"cldoom"},{"f":"cldoom2.html","name":"cldoom2"},{"f":"cldoom2d.html","name":"cldoom2d"},{"f":"cldoom2dDOS.html","name":"cldoom2d D O S"},{"f":"cldoom3pack.html","name":"cldoom3pack"},{"f":"cldoom64.html","name":"cldoom64"},{"f":"cldoomdos.html","name":"cldoomdos"},{"f":"cldoomemscripten.html","name":"cldoomemscripten"},{"f":"cldoomps.html","name":"cldoomps"},{"f":"cldoompsalt.html","name":"cldoompsalt"},{"f":"cldoomzio.html","name":"cldoomzio"},{"f":"cldouchebaglife.html","name":"cldouchebaglife"},{"f":"cldouchebagworkout.html","name":"cldouchebagworkout"},{"f":"cldownthemountain.html","name":"cldownthemountain"},{"f":"cldragonballadvance.html","name":"cldragonballadvance"},{"f":"cldrawclimber.html","name":"cldrawclimber"},{"f":"cldrawtheline.html","name":"cldrawtheline"},{"f":"cldreader.html","name":"cldreader"},{"f":"cldreadheadparkour.html","name":"cldreadheadparkour"},{"f":"cldriftboss.html","name":"cldriftboss"},{"f":"cldrifthuntersmerge.html","name":"cldrifthuntersmerge"},{"f":"cldrivemady.html","name":"cldrivemady"},{"f":"cldrivenwild.html","name":"cldrivenwild"},{"f":"cldrmario.html","name":"cldrmario"},{"f":"cldrweedgaster.html","name":"cldrweedgaster"},{"f":"cldubstep.html","name":"cldubstep"},{"f":"clduckhunt.html","name":"clduckhunt"},{"f":"clducklfe5.html","name":"clducklfe5"},{"f":"clducklife.html","name":"clducklife"},{"f":"clducklife2.html","name":"clducklife2"},{"f":"clducklife3.html","name":"clducklife3"},{"f":"clducklife4.html","name":"clducklife4"},{"f":"clducklifebattle.html","name":"clducklifebattle"},{"f":"clducklifespace.html","name":"clducklifespace"},{"f":"clducklingsio.html","name":"clducklingsio"},{"f":"clducktales.html","name":"clducktales"},{"f":"cldud.html","name":"cldud"},{"f":"cldukenukem3d.html","name":"cldukenukem3d"},{"f":"cldumpling.html","name":"cldumpling"},{"f":"cldungeondeck.html","name":"cldungeondeck"},{"f":"cldungeonraid.html","name":"cldungeonraid"},{"f":"cldungeonsanddegenerategamblers.html","name":"cldungeonsanddegenerategamblers"},{"f":"cldunkshot.html","name":"cldunkshot"},{"f":"clduskchild.html","name":"clduskchild"},{"f":"cldyingdreams.html","name":"cldyingdreams"},{"f":"cldynamiteheaddy.html","name":"cldynamiteheaddy"},{"f":"cleagleride.html","name":"cleagleride"},{"f":"clearntodie.html","name":"clearntodie"},{"f":"clearntodie2.html","name":"clearntodie2"},{"f":"clearthbound.html","name":"clearthbound"},{"f":"clearthbound3.html","name":"clearthbound3"},{"f":"clearthboundsnes.html","name":"clearthboundsnes"},{"f":"clearthtaken.html","name":"clearthtaken"},{"f":"clearthtaken2.html","name":"clearthtaken2"},{"f":"clearthtaken3.html","name":"clearthtaken3"},{"f":"clearthwormjim.html","name":"clearthwormjim"},{"f":"clearthwormjim2.html","name":"clearthwormjim2"},{"f":"cledelweiss.html","name":"cledelweiss"},{"f":"cledyscarsimulator.html","name":"cledyscarsimulator"},{"f":"cleffinghail.html","name":"cleffinghail"},{"f":"cleffingmachines.html","name":"cleffingmachines"},{"f":"cleffingworms.html","name":"cleffingworms"},{"f":"cleffingzombies.html","name":"cleffingzombies"},{"f":"clegg.html","name":"clegg"},{"f":"cleggycar.html","name":"cleggycar"},{"f":"clelasticface.html","name":"clelasticface"},{"f":"clelectricman2.html","name":"clelectricman2"},{"f":"clemujs.html","name":"clemujs"},{"f":"clenchain.html","name":"clenchain"},{"f":"clendlesswar4.html","name":"clendlesswar4"},{"f":"clendlesswar5.html","name":"clendlesswar5"},{"f":"clendlesswar5wow.html","name":"clendlesswar5wow"},{"f":"clendlesswar7.html","name":"clendlesswar7"},{"f":"clenduro.html","name":"clenduro"},{"f":"clepicbattlefantasy5.html","name":"clepicbattlefantasy5"},{"f":"clescalatingduel.html","name":"clescalatingduel"},{"f":"clescaperoad-2.html","name":"clescaperoad-2"},{"f":"clescaperoad.html","name":"clescaperoad"},{"f":"clet.html","name":"clet"},{"f":"cletrianoddyssey.html","name":"cletrianoddyssey"},{"f":"clevilglitch.html","name":"clevilglitch"},{"f":"clevolution.html","name":"clevolution"},{"f":"clexcitebike64.html","name":"clexcitebike64"},{"f":"clextremerun3d.html","name":"clextremerun3d"},{"f":"clfactoryballs.html","name":"clfactoryballs"},{"f":"clfactoryballs2.html","name":"clfactoryballs2"},{"f":"clfactoryballs3.html","name":"clfactoryballs3"},{"f":"clfactoryballs4.html","name":"clfactoryballs4"},{"f":"clfairytalevsonepiece.html","name":"clfairytalevsonepiece"},{"f":"clfallout.html","name":"clfallout"},{"f":"clfamidash.html","name":"clfamidash"},{"f":"clfancypantsadventure.html","name":"clfancypantsadventure"},{"f":"clfancypantsadventure2.html","name":"clfancypantsadventure2"},{"f":"clfancypantsadventure3.html","name":"clfancypantsadventure3"},{"f":"clfancysnowboarding.html","name":"clfancysnowboarding"},{"f":"clfashionbattle.html","name":"clfashionbattle"},{"f":"clfattygenius.html","name":"clfattygenius"},{"f":"clfearstofathomhomealone.html","name":"clfearstofathomhomealone"},{"f":"clfeedus.html","name":"clfeedus"},{"f":"clfeedus2.html","name":"clfeedus2"},{"f":"clfeedus3.html","name":"clfeedus3"},{"f":"clfeedus4.html","name":"clfeedus4"},{"f":"clfeedus5.html","name":"clfeedus5"},{"f":"clff6.html","name":"clff6"},{"f":"clffmysticquest.html","name":"clffmysticquest"},{"f":"clfifa2000.html","name":"clfifa2000"},{"f":"clfinalearth2.html","name":"clfinalearth2"},{"f":"clfinalfantasy.html","name":"clfinalfantasy"},{"f":"clfinalfantasyII.html","name":"clfinalfantasy I I"},{"f":"clfinalfantasyVI.html","name":"clfinalfantasy V I"},{"f":"clfinalfantasyVII.html","name":"clfinalfantasy V I I"},{"f":"clfinalfantasyVIId2.html","name":"clfinalfantasy V I Id2"},{"f":"clfinalfantasyVIId3.html","name":"clfinalfantasy V I Id3"},{"f":"clfinalfantasyVIItheothertetrr.html","name":"clfinalfantasy V I Itheothertetrr"},{"f":"clfinalfantasytactics.html","name":"clfinalfantasytactics"},{"f":"clfinalninja.html","name":"clfinalninja"},{"f":"clfireblob.html","name":"clfireblob"},{"f":"clfireboyandwatergirl.html","name":"clfireboyandwatergirl"},{"f":"clfireboyandwatergirl2.html","name":"clfireboyandwatergirl2"},{"f":"clfireboyandwatergirl3.html","name":"clfireboyandwatergirl3"},{"f":"clfireboyandwatergirl5.html","name":"clfireboyandwatergirl5"},{"f":"clfireboyandwatergirl6.html","name":"clfireboyandwatergirl6"},{"f":"clfireemblem.html","name":"clfireemblem"},{"f":"clfisheatgettingbig.html","name":"clfisheatgettingbig"},{"f":"clfisquarium.html","name":"clfisquarium"},{"f":"clfivenightsatbaldisredone.html","name":"clfivenightsatbaldisredone"},{"f":"clfivenightsatshrekshotel.html","name":"clfivenightsatshrekshotel"},{"f":"clflashsonic.html","name":"clflashsonic"},{"f":"clfloodrunner.html","name":"clfloodrunner"},{"f":"clfloodrunner2.html","name":"clfloodrunner2"},{"f":"clfloodrunner4.html","name":"clfloodrunner4"},{"f":"clfluidism.html","name":"clfluidism"},{"f":"clfnac1.html","name":"clfnac1"},{"f":"clfnac2.html","name":"clfnac2"},{"f":"clfnaf4halloween.html","name":"clfnaf4halloween"},{"f":"clfnafanimatronics.html","name":"clfnafanimatronics"},{"f":"clfnafps.html","name":"clfnafps"},{"f":"clfnafsl.html","name":"clfnafsl"},{"f":"clfnafucn.html","name":"clfnafucn"},{"f":"clfnafworldd.html","name":"clfnafworldd"},{"f":"clfnfagoti.html","name":"clfnfagoti"},{"f":"clfnfbfdi26.html","name":"clfnfbfdi26"},{"f":"clfnfblackbetrayal.html","name":"clfnfblackbetrayal"},{"f":"clfnfbside.html","name":"clfnfbside"},{"f":"clfnfcamelliarudeblaster.html","name":"clfnfcamelliarudeblaster"},{"f":"clfnfcrunchin.html","name":"clfnfcrunchin"},{"f":"clfnfdesolation.html","name":"clfnfdesolation"},{"f":"clfnfdokitakeoverplus.html","name":"clfnfdokitakeoverplus"},{"f":"clfnfdropandroll.html","name":"clfnfdropandroll"},{"f":"clfnfdustin.html","name":"clfnfdustin"},{"f":"clfnffleetway.html","name":"clfnffleetway"},{"f":"clfnffnaf3.html","name":"clfnffnaf3"},{"f":"clfnfgamebreakerbundle.html","name":"clfnfgamebreakerbundle"},{"f":"clfnfgoldenapple.html","name":"clfnfgoldenapple"},{"f":"clfnfhex.html","name":"clfnfhex"},{"f":"clfnfholiday.html","name":"clfnfholiday"},{"f":"clfnfhorkglorpgloop.html","name":"clfnfhorkglorpgloop"},{"f":"clfnfhypnoslullaby.html","name":"clfnfhypnoslullaby"},{"f":"clfnfimposterv4.html","name":"clfnfimposterv4"},{"f":"clfnfindiecross.html","name":"clfnfindiecross"},{"f":"clfnfmadnesspoop.html","name":"clfnfmadnesspoop"},{"f":"clfnfmariomadnessdside.html","name":"clfnfmariomadnessdside"},{"f":"clfnfmidfight.html","name":"clfnfmidfight"},{"f":"clfnfmiku.html","name":"clfnfmiku"},{"f":"clfnfmobmod.html","name":"clfnfmobmod"},{"f":"clfnfneo.html","name":"clfnfneo"},{"f":"clfnfpiggyfield.html","name":"clfnfpiggyfield"},{"f":"clfnfpokepastaperdition.html","name":"clfnfpokepastaperdition"},{"f":"clfnfqt.html","name":"clfnfqt"},{"f":"clfnfrevmixed.html","name":"clfnfrevmixed"},{"f":"clfnfrewrite.html","name":"clfnfrewrite"},{"f":"clfnfselfpaced.html","name":"clfnfselfpaced"},{"f":"clfnfshaggy4keys.html","name":"clfnfshaggy4keys"},{"f":"clfnfshaggyxmatt.html","name":"clfnfshaggyxmatt"},{"f":"clfnfshucks-v2.html","name":"clfnfshucks-v2"},{"f":"clfnfshucksv2.html","name":"clfnfshucksv2"},{"f":"clfnfsky.html","name":"clfnfsky"},{"f":"clfnfsoft.html","name":"clfnfsoft"},{"f":"clfnfsonicexe.html","name":"clfnfsonicexe"},{"f":"clfnfsonicexe4.html","name":"clfnfsonicexe4"},{"f":"clfnftailsgetstrolled.html","name":"clfnftailsgetstrolled"},{"f":"clfnftricky.html","name":"clfnftricky"},{"f":"clfnfwednesday-infedility.html","name":"clfnfwednesday-infedility"},{"f":"clfnfwhitty.html","name":"clfnfwhitty"},{"f":"clfnfzardy.html","name":"clfnfzardy"},{"f":"clfocus.html","name":"clfocus"},{"f":"clfolderdungeon.html","name":"clfolderdungeon"},{"f":"clfootballbros.html","name":"clfootballbros"},{"f":"clfootballlegends.html","name":"clfootballlegends"},{"f":"clforknsausage.html","name":"clforknsausage"},{"f":"clfortzone.html","name":"clfortzone"},{"f":"clfpa4p1.html","name":"clfpa4p1"},{"f":"clfpa4p2.html","name":"clfpa4p2"},{"f":"clfreegemas.html","name":"clfreegemas"},{"f":"clfreerider.html","name":"clfreerider"},{"f":"clfreerider2.html","name":"clfreerider2"},{"f":"clfreerider3.html","name":"clfreerider3"},{"f":"clfridaynightfunkin.html","name":"clfridaynightfunkin"},{"f":"clfromrusttoash.html","name":"clfromrusttoash"},{"f":"clfruitninja.html","name":"clfruitninja"},{"f":"clfunnybattle.html","name":"clfunnybattle"},{"f":"clfunnybattle2.html","name":"clfunnybattle2"},{"f":"clfunnymadracing.html","name":"clfunnymadracing"},{"f":"clfunnyshooter2.html","name":"clfunnyshooter2"},{"f":"clfunnyshooter22.html","name":"clfunnyshooter22"},{"f":"clfzero.html","name":"clfzero"},{"f":"clfzerox.html","name":"clfzerox"},{"f":"clgalaga.html","name":"clgalaga"},{"f":"clgameandwatchcollection.html","name":"clgameandwatchcollection"},{"f":"clgangstabean.html","name":"clgangstabean"},{"f":"clgangstabean2.html","name":"clgangstabean2"},{"f":"clgangsterbros.html","name":"clgangsterbros"},{"f":"clgarcello.html","name":"clgarcello"},{"f":"clgartic1234.html","name":"clgartic1234"},{"f":"clgarticPhone.html","name":"clgartic Phone"},{"f":"clgdlite.html","name":"clgdlite"},{"f":"clgdsubzero.html","name":"clgdsubzero"},{"f":"clgeneralchaos.html","name":"clgeneralchaos"},{"f":"clgenericfightermaybe.html","name":"clgenericfightermaybe"},{"f":"clgeometrydash.html","name":"clgeometrydash"},{"f":"clgeometrydashscratch.html","name":"clgeometrydashscratch"},{"f":"clgeometryvibes.html","name":"clgeometryvibes"},{"f":"clgeorgeandtheprinter.html","name":"clgeorgeandtheprinter"},{"f":"clgetawayshootout.html","name":"clgetawayshootout"},{"f":"clgetontop.html","name":"clgetontop"},{"f":"clgetyoked.html","name":"clgetyoked"},{"f":"clghosttrick.html","name":"clghosttrick"},{"f":"clgimmietheairpod.html","name":"clgimmietheairpod"},{"f":"clgladdihoppers.html","name":"clgladdihoppers"},{"f":"clgloryhunters.html","name":"clgloryhunters"},{"f":"clglover.html","name":"clglover"},{"f":"clgoalsouthafrica.html","name":"clgoalsouthafrica"},{"f":"clgobble.html","name":"clgobble"},{"f":"clgoingballs.html","name":"clgoingballs"},{"f":"clgolddiggerfrvr.html","name":"clgolddiggerfrvr"},{"f":"clgoldeneye007.html","name":"clgoldeneye007"},{"f":"clgoldensun.html","name":"clgoldensun"},{"f":"clgoldensunnds.html","name":"clgoldensunnds"},{"f":"clgoldminer.html","name":"clgoldminer"},{"f":"clgolforbit.html","name":"clgolforbit"},{"f":"clgolfsunday.html","name":"clgolfsunday"},{"f":"clgoodbigtowertinysquare.html","name":"clgoodbigtowertinysquare"},{"f":"clgoodbigtowertinysquare2.html","name":"clgoodbigtowertinysquare2"},{"f":"clgoodboygalaxy.html","name":"clgoodboygalaxy"},{"f":"clgoodmonkeymart.html","name":"clgoodmonkeymart"},{"f":"clgooglebaseball.html","name":"clgooglebaseball"},{"f":"clgoogledino.html","name":"clgoogledino"},{"f":"clgorescriptclassic.html","name":"clgorescriptclassic"},{"f":"clgrandactionsimulator-ny.html","name":"clgrandactionsimulator-ny"},{"f":"clgranddad.html","name":"clgranddad"},{"f":"clgrandtheftautoadvance.html","name":"clgrandtheftautoadvance"},{"f":"clgranny.html","name":"clgranny"},{"f":"clgranny2.html","name":"clgranny2"},{"f":"clgranny22.html","name":"clgranny22"},{"f":"clgranny3.html","name":"clgranny3"},{"f":"clgranturismo.html","name":"clgranturismo"},{"f":"clgranturismo2.html","name":"clgranturismo2"},{"f":"clgrassmowing.html","name":"clgrassmowing"},{"f":"clgravity.html","name":"clgravity"},{"f":"clgravitymod.html","name":"clgravitymod"},{"f":"clgrey-box-testing.html","name":"clgrey-box-testing"},{"f":"clgrimacebirthday.html","name":"clgrimacebirthday"},{"f":"clgrindcraft.html","name":"clgrindcraft"},{"f":"clgrn.html","name":"clgrn"},{"f":"clgrowagarden.html","name":"clgrowagarden"},{"f":"clgrowdenio.html","name":"clgrowdenio"},{"f":"clgrowyourgarden.html","name":"clgrowyourgarden"},{"f":"clgta.html","name":"clgta"},{"f":"clgta2.html","name":"clgta2"},{"f":"clgta22.html","name":"clgta22"},{"f":"clgta2alt.html","name":"clgta2alt"},{"f":"clgtaalt.html","name":"clgtaalt"},{"f":"clgtaalty.html","name":"clgtaalty"},{"f":"clgtachina.html","name":"clgtachina"},{"f":"clguesstheiranswer.html","name":"clguesstheiranswer"},{"f":"clgun-spin.html","name":"clgun-spin"},{"f":"clgunblood.html","name":"clgunblood"},{"f":"clguncho.html","name":"clguncho"},{"f":"clgunknight.html","name":"clgunknight"},{"f":"clgunmayhem.html","name":"clgunmayhem"},{"f":"clgunmayhem2.html","name":"clgunmayhem2"},{"f":"clgunmayhem2goof.html","name":"clgunmayhem2goof"},{"f":"clgunmayhemredux.html","name":"clgunmayhemredux"},{"f":"clgunnight.html","name":"clgunnight"},{"f":"clgunsmoke.html","name":"clgunsmoke"},{"f":"clgymstack.html","name":"clgymstack"},{"f":"clhacx.html","name":"clhacx"},{"f":"clhajimeippo.html","name":"clhajimeippo"},{"f":"clhalflife.html","name":"clhalflife"},{"f":"clhalocombatdevolved.html","name":"clhalocombatdevolved"},{"f":"clhandshakes.html","name":"clhandshakes"},{"f":"clhandsofwar (1).html","name":"clhandsofwar (1)"},{"f":"clhandsofwar(1).html","name":"clhandsofwar(1)"},{"f":"clhandsofwar(2).html","name":"clhandsofwar(2)"},{"f":"clhandsofwar.html","name":"clhandsofwar"},{"f":"clhandulum.html","name":"clhandulum"},{"f":"clhanger2.html","name":"clhanger2"},{"f":"clhappyroom.html","name":"clhappyroom"},{"f":"clhappywheels.html","name":"clhappywheels"},{"f":"clhardwaretycoon.html","name":"clhardwaretycoon"},{"f":"clharvestio.html","name":"clharvestio"},{"f":"clharvestmoon.html","name":"clharvestmoon"},{"f":"clharvestmoon64.html","name":"clharvestmoon64"},{"f":"clhauntthehouse.html","name":"clhauntthehouse"},{"f":"clheartandsoul.html","name":"clheartandsoul"},{"f":"clhei$t.html","name":"clhei$t"},{"f":"clhelixjump.html","name":"clhelixjump"},{"f":"clhellron.html","name":"clhellron"},{"f":"clhelpnobrakes.html","name":"clhelpnobrakes"},{"f":"clhero3flyingrobot.html","name":"clhero3flyingrobot"},{"f":"clhextris.html","name":"clhextris"},{"f":"clhighstakes.html","name":"clhighstakes"},{"f":"clhighwayracer2.html","name":"clhighwayracer2"},{"f":"clhighwaytraffic3d.html","name":"clhighwaytraffic3d"},{"f":"clhillclimbracinglite.html","name":"clhillclimbracinglite"},{"f":"clhipsterkickball.html","name":"clhipsterkickball"},{"f":"clhit8ox.html","name":"clhit8ox"},{"f":"clhitsinglereal.html","name":"clhitsinglereal"},{"f":"clhl2doom.html","name":"clhl2doom"},{"f":"clhobo.html","name":"clhobo"},{"f":"clhobo2.html","name":"clhobo2"},{"f":"clhobo3.html","name":"clhobo3"},{"f":"clhobo4.html","name":"clhobo4"},{"f":"clhobo5.html","name":"clhobo5"},{"f":"clhobo6.html","name":"clhobo6"},{"f":"clhobo7.html","name":"clhobo7"},{"f":"clhobovszombies.html","name":"clhobovszombies"},{"f":"clholeio.html","name":"clholeio"},{"f":"clhollowknight.html","name":"clhollowknight"},{"f":"clhouseofhazards.html","name":"clhouseofhazards"},{"f":"clhoverracerdrive.html","name":"clhoverracerdrive"},{"f":"clhumanexpenditureprogram.html","name":"clhumanexpenditureprogram"},{"f":"clhungryknight.html","name":"clhungryknight"},{"f":"clhungrylamu.html","name":"clhungrylamu"},{"f":"clhyppersandbox.html","name":"clhyppersandbox"},{"f":"clicantbelievegoogleflaggedmeforthenameofthefilelol.html","name":"clicantbelievegoogleflaggedmeforthenameofthefilelol"},{"f":"clice age baby.html","name":"clice age baby"},{"f":"clicedodo.html","name":"clicedodo"},{"f":"clicypurplehead.html","name":"clicypurplehead"},{"f":"clidlebreakout.html","name":"clidlebreakout"},{"f":"clidledice.html","name":"clidledice"},{"f":"clidleidlegamedev.html","name":"clidleidlegamedev"},{"f":"clidleminertycoon.html","name":"clidleminertycoon"},{"f":"clidleminorzamnshes12.html","name":"clidleminorzamnshes12"},{"f":"climpossiblequiz (1).html","name":"climpossiblequiz (1)"},{"f":"climpossiblequiz.html","name":"climpossiblequiz"},{"f":"climpossiblequiz2.html","name":"climpossiblequiz2"},{"f":"climposter.html","name":"climposter"},{"f":"clinclementemerald.html","name":"clinclementemerald"},{"f":"clindiantrucksimiulator.html","name":"clindiantrucksimiulator"},{"f":"clinfinitecraft.html","name":"clinfinitecraft"},{"f":"clinkgame.html","name":"clinkgame"},{"f":"clinnkeeper.html","name":"clinnkeeper"},{"f":"clinsidestory.html","name":"clinsidestory"},{"f":"clinteractivebuddy.html","name":"clinteractivebuddy"},{"f":"clintoruins.html","name":"clintoruins"},{"f":"clintospace.html","name":"clintospace"},{"f":"clintospace2.html","name":"clintospace2"},{"f":"clintospace3.html","name":"clintospace3"},{"f":"clintothedeepweb.html","name":"clintothedeepweb"},{"f":"clintrusion.html","name":"clintrusion"},{"f":"cliqball.html","name":"cliqball"},{"f":"clironsnout.html","name":"clironsnout"},{"f":"clironsoldier.html","name":"clironsoldier"},{"f":"cliwbtg.html","name":"cliwbtg"},{"f":"cljacksmith.html","name":"cljacksmith"},{"f":"cljacksmithencryptedorsmthn.html","name":"cljacksmithencryptedorsmthn"},{"f":"cljailbreakobbbobob.html","name":"cljailbreakobbbobob"},{"f":"cljefflings.html","name":"cljefflings"},{"f":"cljellydadhero.html","name":"cljellydadhero"},{"f":"cljellydrift.html","name":"cljellydrift"},{"f":"cljellytruck.html","name":"cljellytruck"},{"f":"cljellytruckgood.html","name":"cljellytruckgood"},{"f":"cljetforcegemini.html","name":"cljetforcegemini"},{"f":"cljetpackjoyride.html","name":"cljetpackjoyride"},{"f":"cljetrush.html","name":"cljetrush"},{"f":"cljetskiracing.html","name":"cljetskiracing"},{"f":"cljohnnytrigger.html","name":"cljohnnytrigger"},{"f":"cljohnnyupgrade.html","name":"cljohnnyupgrade"},{"f":"cljourneydownhill.html","name":"cljourneydownhill"},{"f":"cljsvecx.html","name":"cljsvecx"},{"f":"cljumpingshell.html","name":"cljumpingshell"},{"f":"cljustfalllol.html","name":"cljustfalllol"},{"f":"cljusthitthebutton.html","name":"cljusthitthebutton"},{"f":"cljustoneboss.html","name":"cljustoneboss"},{"f":"clkaizomarioworld.html","name":"clkaizomarioworld"},{"f":"clkalikan.html","name":"clkalikan"},{"f":"clkapi.html","name":"clkapi"},{"f":"clkaratebros.html","name":"clkaratebros"},{"f":"clkarlson.html","name":"clkarlson"},{"f":"clkartbros.html","name":"clkartbros"},{"f":"clkillerinstinct.html","name":"clkillerinstinct"},{"f":"clkillover.html","name":"clkillover"},{"f":"clkilltheiceagebabyadventure.html","name":"clkilltheiceagebabyadventure"},{"f":"clkingdomheartsdays.html","name":"clkingdomheartsdays"},{"f":"clkingdomheartsrecoded.html","name":"clkingdomheartsrecoded"},{"f":"clkingdomheartsrecodedalt.html","name":"clkingdomheartsrecodedalt"},{"f":"clkirby64.html","name":"clkirby64"},{"f":"clkirbyandtheamzingmirror.html","name":"clkirbyandtheamzingmirror"},{"f":"clkirbysadventure.html","name":"clkirbysadventure"},{"f":"clkirbysdreamland.html","name":"clkirbysdreamland"},{"f":"clkirbysdreamland3.html","name":"clkirbysdreamland3"},{"f":"clkirbysqueaksquad.html","name":"clkirbysqueaksquad"},{"f":"clkirbysuperstar.html","name":"clkirbysuperstar"},{"f":"clkirbysuperstarultra.html","name":"clkirbysuperstarultra"},{"f":"clkittencannon.html","name":"clkittencannon"},{"f":"clklifur.html","name":"clklifur"},{"f":"clknifehit.html","name":"clknifehit"},{"f":"clknightmaretower.html","name":"clknightmaretower"},{"f":"clkonkrio.html","name":"clkonkrio"},{"f":"clkoopasrevenge.html","name":"clkoopasrevenge"},{"f":"clkourio.html","name":"clkourio"},{"f":"cllaceysflashgames.html","name":"cllaceysflashgames"},{"f":"cllastfirered.html","name":"cllastfirered"},{"f":"cllasthorizon.html","name":"cllasthorizon"},{"f":"cllaststand.html","name":"cllaststand"},{"f":"cllaststand2.html","name":"cllaststand2"},{"f":"clleaderstrike.html","name":"clleaderstrike"},{"f":"cllearntofly.html","name":"cllearntofly"},{"f":"cllearntofly2.html","name":"cllearntofly2"},{"f":"cllearntofly3.html","name":"cllearntofly3"},{"f":"cllearntoflyidle.html","name":"cllearntoflyidle"},{"f":"cllegobatman.html","name":"cllegobatman"},{"f":"cllegobatman2superheroes.html","name":"cllegobatman2superheroes"},{"f":"cllegoindianajones.html","name":"cllegoindianajones"},{"f":"cllegoindianajones2.html","name":"cllegoindianajones2"},{"f":"cllegoninjago.html","name":"cllegoninjago"},{"f":"cllegostarwars.html","name":"cllegostarwars"},{"f":"cllemmings.html","name":"cllemmings"},{"f":"clleveldevil.html","name":"clleveldevil"},{"f":"clleverwarriors.html","name":"clleverwarriors"},{"f":"cllightitup.html","name":"cllightitup"},{"f":"cllilrunmo.html","name":"cllilrunmo"},{"f":"cllinerider.html","name":"cllinerider"},{"f":"cllinktothepast.html","name":"cllinktothepast"},{"f":"cllittlerunmo.html","name":"cllittlerunmo"},{"f":"cllockthedoor.html","name":"cllockthedoor"},{"f":"clloderunner.html","name":"clloderunner"},{"f":"cllonewolf.html","name":"cllonewolf"},{"f":"cllosangelesshark.html","name":"cllosangelesshark"},{"f":"cllowknight.html","name":"cllowknight"},{"f":"clloz1.html","name":"clloz1"},{"f":"cllozlinkawakening.html","name":"cllozlinkawakening"},{"f":"cllozminishcap.html","name":"cllozminishcap"},{"f":"cllozoracleofseasons.html","name":"cllozoracleofseasons"},{"f":"cllozspirittracks.html","name":"cllozspirittracks"},{"f":"clluckyblocks.html","name":"clluckyblocks"},{"f":"clmadalinstuntcars.html","name":"clmadalinstuntcars"},{"f":"clmadalinstuntcarsgood.html","name":"clmadalinstuntcarsgood"},{"f":"clmadalinstuntcarsmultiplayerfixed.html","name":"clmadalinstuntcarsmultiplayerfixed"},{"f":"clmadden93.html","name":"clmadden93"},{"f":"clmadden94.html","name":"clmadden94"},{"f":"clmadden95.html","name":"clmadden95"},{"f":"clmadden96.html","name":"clmadden96"},{"f":"clmadden99.html","name":"clmadden99"},{"f":"clmaddenfootball.html","name":"clmaddenfootball"},{"f":"clmaddenfootball64.html","name":"clmaddenfootball64"},{"f":"clmaddennfl.html","name":"clmaddennfl"},{"f":"clmaddennfl2000.html","name":"clmaddennfl2000"},{"f":"clmaddennfl2001.html","name":"clmaddennfl2001"},{"f":"clmaddennfl2002.html","name":"clmaddennfl2002"},{"f":"clmaddy98.html","name":"clmaddy98"},{"f":"clmadness-retaliation.html","name":"clmadness-retaliation"},{"f":"clmadnessaccelerant.html","name":"clmadnessaccelerant"},{"f":"clmadnesscombatdefense.html","name":"clmadnesscombatdefense"},{"f":"clmadnesscombatnexus.html","name":"clmadnesscombatnexus"},{"f":"clmadnessgemini.html","name":"clmadnessgemini"},{"f":"clmadnesshydraulic.html","name":"clmadnesshydraulic"},{"f":"clmadnessinteractive.html","name":"clmadnessinteractive"},{"f":"clmadnessoffcolor.html","name":"clmadnessoffcolor"},{"f":"clmadnesspremediation.html","name":"clmadnesspremediation"},{"f":"clmadnessretaliation.html","name":"clmadnessretaliation"},{"f":"clmadnesss2010.html","name":"clmadnesss2010"},{"f":"clmadnessstand.html","name":"clmadnessstand"},{"f":"clmadskillsmotocross2.html","name":"clmadskillsmotocross2"},{"f":"clmadstick.html","name":"clmadstick"},{"f":"clmadstuntcars2.html","name":"clmadstuntcars2"},{"f":"clmagictiles3.html","name":"clmagictiles3"},{"f":"clmajorasmask.html","name":"clmajorasmask"},{"f":"clmakesureitsclosed.html","name":"clmakesureitsclosed"},{"f":"clmanagod.html","name":"clmanagod"},{"f":"clmario3.html","name":"clmario3"},{"f":"clmarioandluigisuperstarsaga.html","name":"clmarioandluigisuperstarsaga"},{"f":"clmariocombat.html","name":"clmariocombat"},{"f":"clmariogolf.html","name":"clmariogolf"},{"f":"clmariokart64.html","name":"clmariokart64"},{"f":"clmariokartds.html","name":"clmariokartds"},{"f":"clmariokartsupercircuit.html","name":"clmariokartsupercircuit"},{"f":"clmariomadness.html","name":"clmariomadness"},{"f":"clmariominusrabbids.html","name":"clmariominusrabbids"},{"f":"clmariopaint.html","name":"clmariopaint"},{"f":"clmarioparty.html","name":"clmarioparty"},{"f":"clmarioparty2.html","name":"clmarioparty2"},{"f":"clmarioparty3.html","name":"clmarioparty3"},{"f":"clmariopartyds.html","name":"clmariopartyds"},{"f":"clmariosmysterymeat.html","name":"clmariosmysterymeat"},{"f":"clmariotennis.html","name":"clmariotennis"},{"f":"clmaskedforcesunlimited.html","name":"clmaskedforcesunlimited"},{"f":"clmastermindworldconquerer.html","name":"clmastermindworldconquerer"},{"f":"clmathgame.html","name":"clmathgame"},{"f":"clmathgamev2.html","name":"clmathgamev2"},{"f":"clmathgamev3.html","name":"clmathgamev3"},{"f":"clmatrixrampage.html","name":"clmatrixrampage"},{"f":"clmattv2.html","name":"clmattv2"},{"f":"clmcfpsfbhd.html","name":"clmcfpsfbhd"},{"f":"clmcraerally.html","name":"clmcraerally"},{"f":"clmeatboy.html","name":"clmeatboy"},{"f":"clmeatboyflash.html","name":"clmeatboyflash"},{"f":"clmedalofhonor.html","name":"clmedalofhonor"},{"f":"clmedievalshark.html","name":"clmedievalshark"},{"f":"clmedievil.html","name":"clmedievil"},{"f":"clmegachess.html","name":"clmegachess"},{"f":"clmegaman.html","name":"clmegaman"},{"f":"clmegaman2.html","name":"clmegaman2"},{"f":"clmegaman2gba.html","name":"clmegaman2gba"},{"f":"clmegaman3.html","name":"clmegaman3"},{"f":"clmegaman4.html","name":"clmegaman4"},{"f":"clmegaman5.html","name":"clmegaman5"},{"f":"clmegaman6.html","name":"clmegaman6"},{"f":"clmegaman7.html","name":"clmegaman7"},{"f":"clmegaman8.html","name":"clmegaman8"},{"f":"clmegamanlegends.html","name":"clmegamanlegends"},{"f":"clmegamanlegends2.html","name":"clmegamanlegends2"},{"f":"clmegamanx.html","name":"clmegamanx"},{"f":"clmegamanx2.html","name":"clmegamanx2"},{"f":"clmegamanx3.html","name":"clmegamanx3"},{"f":"clmegamanx4.html","name":"clmegamanx4"},{"f":"clmegamanzero.html","name":"clmegamanzero"},{"f":"clmegamanzx.html","name":"clmegamanzx"},{"f":"clmegaminer.html","name":"clmegaminer"},{"f":"clmelonplayground.html","name":"clmelonplayground"},{"f":"clmeowuwu.html","name":"clmeowuwu"},{"f":"clmergeroundracers.html","name":"clmergeroundracers"},{"f":"clmetalgear.html","name":"clmetalgear"},{"f":"clmetalgearsolid.html","name":"clmetalgearsolid"},{"f":"clmetalgearsolidps.html","name":"clmetalgearsolidps"},{"f":"clmetalslugadvance.html","name":"clmetalslugadvance"},{"f":"clmetalslugmission1.html","name":"clmetalslugmission1"},{"f":"clmetalslugmission2.html","name":"clmetalslugmission2"},{"f":"clmetroid.html","name":"clmetroid"},{"f":"clmetroid2.html","name":"clmetroid2"},{"f":"clmetroidfusion.html","name":"clmetroidfusion"},{"f":"clmetroidzeromission.html","name":"clmetroidzeromission"},{"f":"clmiamishark.html","name":"clmiamishark"},{"f":"clmicromages.html","name":"clmicromages"},{"f":"clmightyknight.html","name":"clmightyknight"},{"f":"clmightyknight2.html","name":"clmightyknight2"},{"f":"clmimic.html","name":"clmimic"},{"f":"clmindscape.html","name":"clmindscape"},{"f":"clminecraft1-8-8.html","name":"clminecraft1-8-8"},{"f":"clminecraftshooter.html","name":"clminecraftshooter"},{"f":"clmineshooter.html","name":"clmineshooter"},{"f":"clminesweeperplus.html","name":"clminesweeperplus"},{"f":"clminhero.html","name":"clminhero"},{"f":"clminicrossword.html","name":"clminicrossword"},{"f":"clminimart.html","name":"clminimart"},{"f":"clminishooters.html","name":"clminishooters"},{"f":"clminitooth.html","name":"clminitooth"},{"f":"clmiraginewar.html","name":"clmiraginewar"},{"f":"clmisslecommand.html","name":"clmisslecommand"},{"f":"clmk4ampedup.html","name":"clmk4ampedup"},{"f":"clmmwilywars.html","name":"clmmwilywars"},{"f":"clmobcontrolhtml5.html","name":"clmobcontrolhtml5"},{"f":"clmobiusrevolution.html","name":"clmobiusrevolution"},{"f":"clmoneyrush.html","name":"clmoneyrush"},{"f":"clmonkeymart.html","name":"clmonkeymart"},{"f":"clmonkeymartenc.html","name":"clmonkeymartenc"},{"f":"clmonstertracks.html","name":"clmonstertracks"},{"f":"clmonstertruckportstunt.html","name":"clmonstertruckportstunt"},{"f":"clmortalkombat.html","name":"clmortalkombat"},{"f":"clmortalkombat2.html","name":"clmortalkombat2"},{"f":"clmortalkombat3.html","name":"clmortalkombat3"},{"f":"clmortalkombatadvance.html","name":"clmortalkombatadvance"},{"f":"clmortkom4.html","name":"clmortkom4"},{"f":"clmotherload.html","name":"clmotherload"},{"f":"clmotoroadrash.html","name":"clmotoroadrash"},{"f":"clmotox3m2.html","name":"clmotox3m2"},{"f":"clmotox3m3.html","name":"clmotox3m3"},{"f":"clmotox3mm.html","name":"clmotox3mm"},{"f":"clmotox3mpoolparty.html","name":"clmotox3mpoolparty"},{"f":"clmotox3mspookyland.html","name":"clmotox3mspookyland"},{"f":"clmotox3mwinter.html","name":"clmotox3mwinter"},{"f":"clmountainbikeracer.html","name":"clmountainbikeracer"},{"f":"clmrracer.html","name":"clmrracer"},{"f":"clmspacman.html","name":"clmspacman"},{"f":"clmultitask.html","name":"clmultitask"},{"f":"clmutilate-a-doll.html","name":"clmutilate-a-doll"},{"f":"clmxoffroadmaster.html","name":"clmxoffroadmaster"},{"f":"clmyfriendpedro.html","name":"clmyfriendpedro"},{"f":"clmyfriendpedroarena.html","name":"clmyfriendpedroarena"},{"f":"clmyteardrop.html","name":"clmyteardrop"},{"f":"cln.html","name":"cln"},{"f":"clnarc.html","name":"clnarc"},{"f":"clnaturalselection.html","name":"clnaturalselection"},{"f":"clnbajamTE.html","name":"clnbajam T E"},{"f":"clneonblaster.html","name":"clneonblaster"},{"f":"clneonrider.html","name":"clneonrider"},{"f":"clnesworldchampion.html","name":"clnesworldchampion"},{"f":"clnetattack.html","name":"clnetattack"},{"f":"clneverendinglegacy.html","name":"clneverendinglegacy"},{"f":"clnewgroundsrumble.html","name":"clnewgroundsrumble"},{"f":"clnewsupermariobros.html","name":"clnewsupermariobros"},{"f":"clnewyorkshark.html","name":"clnewyorkshark"},{"f":"clnextdoor.html","name":"clnextdoor"},{"f":"clnflblitz.html","name":"clnflblitz"},{"f":"clnfscarbonowncity.html","name":"clnfscarbonowncity"},{"f":"clnfsmostwanted.html","name":"clnfsmostwanted"},{"f":"clnfsporcheunleashed.html","name":"clnfsporcheunleashed"},{"f":"clnfsunderground.html","name":"clnfsunderground"},{"f":"clnfsunderground2.html","name":"clnfsunderground2"},{"f":"clngon.html","name":"clngon"},{"f":"clnhl2002.html","name":"clnhl2002"},{"f":"clnhlhitz2003.html","name":"clnhlhitz2003"},{"f":"clnickelodeonsuperbrawl2.html","name":"clnickelodeonsuperbrawl2"},{"f":"clnightclubshowdown.html","name":"clnightclubshowdown"},{"f":"clnightfire.html","name":"clnightfire"},{"f":"clnightshade.html","name":"clnightshade"},{"f":"clnimrods.html","name":"clnimrods"},{"f":"clninjabrawl.html","name":"clninjabrawl"},{"f":"clnintendogslab.html","name":"clnintendogslab"},{"f":"clnintendoworldcup.html","name":"clnintendoworldcup"},{"f":"clnitromemustdie.html","name":"clnitromemustdie"},{"f":"clnomoregameasdsadfagfggdfs.html","name":"clnomoregameasdsadfagfggdfs"},{"f":"clnoobminer.html","name":"clnoobminer"},{"f":"clnotyourpawn.html","name":"clnotyourpawn"},{"f":"clnplus.html","name":"clnplus"},{"f":"clnubbysnumberfactory.html","name":"clnubbysnumberfactory"},{"f":"clnullkevin.html","name":"clnullkevin"},{"f":"clnzp.html","name":"clnzp"},{"f":"clobby-99-will-lose.html","name":"clobby-99-will-lose"},{"f":"clobbyonlyup.html","name":"clobbyonlyup"},{"f":"clobeythegame.html","name":"clobeythegame"},{"f":"clocarinaoftime.html","name":"clocarinaoftime"},{"f":"clofflineparadise.html","name":"clofflineparadise"},{"f":"clomeganuggetclicker.html","name":"clomeganuggetclicker"},{"f":"clonebitadventure.html","name":"clonebitadventure"},{"f":"clonenightasfreddy.html","name":"clonenightasfreddy"},{"f":"clonepiece.html","name":"clonepiece"},{"f":"clonepiecefighting.html","name":"clonepiecefighting"},{"f":"clonlyup.html","name":"clonlyup"},{"f":"cloperius.html","name":"cloperius"},{"f":"cloppositeday.html","name":"cloppositeday"},{"f":"clopposumcountry.html","name":"clopposumcountry"},{"f":"clorbofcreation.html","name":"clorbofcreation"},{"f":"clordinarysonicromhack.html","name":"clordinarysonicromhack"},{"f":"cloregontrail.html","name":"cloregontrail"},{"f":"clormmimastickwithclsoitcanberememberedoyeahclalienhominid.html","name":"clormmimastickwithclsoitcanberememberedoyeahclalienhominid"},{"f":"closu.html","name":"closu"},{"f":"clourpleguy.html","name":"clourpleguy"},{"f":"clovo.html","name":"clovo"},{"f":"clovo2.html","name":"clovo2"},{"f":"clovodimensions.html","name":"clovodimensions"},{"f":"clovofixed.html","name":"clovofixed"},{"f":"clpacman.html","name":"clpacman"},{"f":"clpacmansuperfast.html","name":"clpacmansuperfast"},{"f":"clpapabakeria.html","name":"clpapabakeria"},{"f":"clpapadonut.html","name":"clpapadonut"},{"f":"clpapalouienighthunt2.html","name":"clpapalouienighthunt2"},{"f":"clpapalouiewhenburgersattack.html","name":"clpapalouiewhenburgersattack"},{"f":"clpapalouiewhenpizzasattack.html","name":"clpapalouiewhenpizzasattack"},{"f":"clpapalouiewhensundaesattack.html","name":"clpapalouiewhensundaesattack"},{"f":"clpapapizzagood.html","name":"clpapapizzagood"},{"f":"clpapapizzagoody.html","name":"clpapapizzagoody"},{"f":"clpapapizzamamamia.html","name":"clpapapizzamamamia"},{"f":"clpapasburgerIIIAAAAA.html","name":"clpapasburger I I I A A A A A"},{"f":"clpapascheeseria.html","name":"clpapascheeseria"},{"f":"clpapascupcakeria.html","name":"clpapascupcakeria"},{"f":"clpapasfreezeria.html","name":"clpapasfreezeria"},{"f":"clpapashotdoggeria.html","name":"clpapashotdoggeria"},{"f":"clpapaspancakeria.html","name":"clpapaspancakeria"},{"f":"clpapaspastaria.html","name":"clpapaspastaria"},{"f":"clpapasscooperia.html","name":"clpapasscooperia"},{"f":"clpapassushiria.html","name":"clpapassushiria"},{"f":"clpapastacomia.html","name":"clpapastacomia"},{"f":"clpapaswingeria.html","name":"clpapaswingeria"},{"f":"clpaperio.html","name":"clpaperio"},{"f":"clpaperio3d.html","name":"clpaperio3d"},{"f":"clpaperiomania.html","name":"clpaperiomania"},{"f":"clpapermario.html","name":"clpapermario"},{"f":"clpapermariopromode.html","name":"clpapermariopromode"},{"f":"clpapermariottyd.html","name":"clpapermariottyd"},{"f":"clparappatherapper.html","name":"clparappatherapper"},{"f":"clparappatherapperalt.html","name":"clparappatherapperalt"},{"f":"clparkingfury.html","name":"clparkingfury"},{"f":"clparkingfury2.html","name":"clparkingfury2"},{"f":"clparkingfury3.html","name":"clparkingfury3"},{"f":"clparkingrush.html","name":"clparkingrush"},{"f":"clpartnersintime.html","name":"clpartnersintime"},{"f":"clpeacekeeper.html","name":"clpeacekeeper"},{"f":"clpeggle.html","name":"clpeggle"},{"f":"clpenaltykicks.html","name":"clpenaltykicks"},{"f":"clpenguindiner.html","name":"clpenguindiner"},{"f":"clpenguinpass.html","name":"clpenguinpass"},{"f":"clpepsiman.html","name":"clpepsiman"},{"f":"clpepsimanalt.html","name":"clpepsimanalt"},{"f":"clpereelous.html","name":"clpereelous"},{"f":"clperfectdark.html","name":"clperfectdark"},{"f":"clperfecthotel.html","name":"clperfecthotel"},{"f":"clpersona.html","name":"clpersona"},{"f":"clpersona2.html","name":"clpersona2"},{"f":"clpersona2alt.html","name":"clpersona2alt"},{"f":"clpersonaalt.html","name":"clpersonaalt"},{"f":"clphasma.html","name":"clphasma"},{"f":"clpheonixjusticeforall.html","name":"clpheonixjusticeforall"},{"f":"clpheonixrightaceattorny.html","name":"clpheonixrightaceattorny"},{"f":"clpheonixtrialsandyear.html","name":"clpheonixtrialsandyear"},{"f":"clpheonixtrialsandyeartrhfasd.html","name":"clpheonixtrialsandyeartrhfasd"},{"f":"clpibbyapocalypse.html","name":"clpibbyapocalypse"},{"f":"clpico8.html","name":"clpico8"},{"f":"clpico8edu.html","name":"clpico8edu"},{"f":"clpicodriller.html","name":"clpicodriller"},{"f":"clpicohot.html","name":"clpicohot"},{"f":"clpicolife.html","name":"clpicolife"},{"f":"clpiconightpunkin.html","name":"clpiconightpunkin"},{"f":"clpicosschool.html","name":"clpicosschool"},{"f":"clpicovsbeardx.html","name":"clpicovsbeardx"},{"f":"clpiecesofcake.html","name":"clpiecesofcake"},{"f":"clpikwip.html","name":"clpikwip"},{"f":"clpingpongchaos.html","name":"clpingpongchaos"},{"f":"clpinkbike.html","name":"clpinkbike"},{"f":"clpitfall.html","name":"clpitfall"},{"f":"clpitof100trials.html","name":"clpitof100trials"},{"f":"clpixelbattlegroundsio.html","name":"clpixelbattlegroundsio"},{"f":"clpixelcombat2.html","name":"clpixelcombat2"},{"f":"clpixelquestlostidols.html","name":"clpixelquestlostidols"},{"f":"clpixelshooter.html","name":"clpixelshooter"},{"f":"clpixelspeedrun.html","name":"clpixelspeedrun"},{"f":"clpixelwarfare.html","name":"clpixelwarfare"},{"f":"clpizzapapa.html","name":"clpizzapapa"},{"f":"clpizzatower.html","name":"clpizzatower"},{"f":"clplangman.html","name":"clplangman"},{"f":"clplantsvszombies.html","name":"clplantsvszombies"},{"f":"clplazmaburst.html","name":"clplazmaburst"},{"f":"clplinko.html","name":"clplinko"},{"f":"clplonky.html","name":"clplonky"},{"f":"clpogo3D.html","name":"clpogo3 D"},{"f":"clpokebattlefact.html","name":"clpokebattlefact"},{"f":"clpokeblack.html","name":"clpokeblack"},{"f":"clpokeblack2.html.html","name":"clpokeblack2.html"},{"f":"clpokeblack2alt.html","name":"clpokeblack2alt"},{"f":"clpokeblackalt.html","name":"clpokeblackalt"},{"f":"clpokeblazeblack2redux.html","name":"clpokeblazeblack2redux"},{"f":"clpokeblue.html","name":"clpokeblue"},{"f":"clpokeclassic.html","name":"clpokeclassic"},{"f":"clpokecrown.html","name":"clpokecrown"},{"f":"clpokecrystalclear.html","name":"clpokecrystalclear"},{"f":"clpokediamond.html","name":"clpokediamond"},{"f":"clpokedreamstone.html","name":"clpokedreamstone"},{"f":"clpokeeliteredux.html","name":"clpokeeliteredux"},{"f":"clpokeelysiuma.html","name":"clpokeelysiuma"},{"f":"clpokeelysiumb.html","name":"clpokeelysiumb"},{"f":"clpokeemeraldenhanced.html","name":"clpokeemeraldenhanced"},{"f":"clpokeemeraldexceeded.html","name":"clpokeemeraldexceeded"},{"f":"clpokeemeraldhorizons.html","name":"clpokeemeraldhorizons"},{"f":"clpokeemeraldrandom.html","name":"clpokeemeraldrandom"},{"f":"clpokefiregold.html","name":"clpokefiregold"},{"f":"clpokeflora.html","name":"clpokeflora"},{"f":"clpokegaia.html","name":"clpokegaia"},{"f":"clpokegschronicles.html","name":"clpokegschronicles"},{"f":"clpokeheartgold.html","name":"clpokeheartgold"},{"f":"clpokelightplatinum.html","name":"clpokelightplatinum"},{"f":"clpokeliquidcrysta.html","name":"clpokeliquidcrysta"},{"f":"clpokemegamoemon.html","name":"clpokemegamoemon"},{"f":"clpokemonamnesia.html","name":"clpokemonamnesia"},{"f":"clpokemonclover.html","name":"clpokemonclover"},{"f":"clpokemoncrystal.html","name":"clpokemoncrystal"},{"f":"clpokemonemerald.html","name":"clpokemonemerald"},{"f":"clpokemonemeraldcrest.html","name":"clpokemonemeraldcrest"},{"f":"clpokemonemeraldimperium.html","name":"clpokemonemeraldimperium"},{"f":"clpokemonemeraldkaizo.html","name":"clpokemonemeraldkaizo"},{"f":"clpokemonemeraldmini.html","name":"clpokemonemeraldmini"},{"f":"clpokemonemeraldseaglass.html","name":"clpokemonemeraldseaglass"},{"f":"clpokemonenergizedemerald.html","name":"clpokemonenergizedemerald"},{"f":"clpokemonevolvedsfdgsdfs.html","name":"clpokemonevolvedsfdgsdfs"},{"f":"clpokemonfirered.html","name":"clpokemonfirered"},{"f":"clpokemonfireredandleafgreenplusedition.html","name":"clpokemonfireredandleafgreenplusedition"},{"f":"clpokemonfireredrandomized.html","name":"clpokemonfireredrandomized"},{"f":"clpokemongold.html","name":"clpokemongold"},{"f":"clpokemonkaizoironfirered.html","name":"clpokemonkaizoironfirered"},{"f":"clpokemonlazarus.html","name":"clpokemonlazarus"},{"f":"clpokemonleafgreen.html","name":"clpokemonleafgreen"},{"f":"clpokemonmodernemerald.html","name":"clpokemonmodernemerald"},{"f":"clpokemonmysterydungeon.html","name":"clpokemonmysterydungeon"},{"f":"clpokemonquetzal.html","name":"clpokemonquetzal"},{"f":"clpokemonroaringred.html","name":"clpokemonroaringred"},{"f":"clpokemonruby.html","name":"clpokemonruby"},{"f":"clpokemonsapphire.html","name":"clpokemonsapphire"},{"f":"clpokemonshinsigma.html","name":"clpokemonshinsigma"},{"f":"clpokemonsilver.html","name":"clpokemonsilver"},{"f":"clpokemonsnap.html","name":"clpokemonsnap"},{"f":"clpokemonstadium.html","name":"clpokemonstadium"},{"f":"clpokemontowerdefense.html","name":"clpokemontowerdefense"},{"f":"clpokemonultimatefusion.html","name":"clpokemonultimatefusion"},{"f":"clpokemonunbound.html","name":"clpokemonunbound"},{"f":"clpokemysteryexplorersofsky.html","name":"clpokemysteryexplorersofsky"},{"f":"clpokeodyssey.html","name":"clpokeodyssey"},{"f":"clpokepearl.html","name":"clpokepearl"},{"f":"clpokeperfectfirered.html","name":"clpokeperfectfirered"},{"f":"clpokepisces.html","name":"clpokepisces"},{"f":"clpokeplatinum.html","name":"clpokeplatinum"},{"f":"clpokeplatinumrandomized.html","name":"clpokeplatinumrandomized"},{"f":"clpokerechargedpink.html","name":"clpokerechargedpink"},{"f":"clpokerechargedyellow.html","name":"clpokerechargedyellow"},{"f":"clpokerecordkeepers.html","name":"clpokerecordkeepers"},{"f":"clpokered.html","name":"clpokered"},{"f":"clpokerocketedition.html","name":"clpokerocketedition"},{"f":"clpokerowe.html","name":"clpokerowe"},{"f":"clpokeruby.html","name":"clpokeruby"},{"f":"clpokerunandbun.html","name":"clpokerunandbun"},{"f":"clpokescorchedsilver.html","name":"clpokescorchedsilver"},{"f":"clpokesoulsilver.html","name":"clpokesoulsilver"},{"f":"clpokethepit.html","name":"clpokethepit"},{"f":"clpoketourmaline.html","name":"clpoketourmaline"},{"f":"clpokeultraviolet.html","name":"clpokeultraviolet"},{"f":"clpokeunovaemerald.html","name":"clpokeunovaemerald"},{"f":"clpokevega.html","name":"clpokevega"},{"f":"clpokevoltwhite2redux.html","name":"clpokevoltwhite2redux"},{"f":"clpokevoyager.html","name":"clpokevoyager"},{"f":"clpokewhite.html","name":"clpokewhite"},{"f":"clpokewhite2.html","name":"clpokewhite2"},{"f":"clpokewhite2alt.html","name":"clpokewhite2alt"},{"f":"clpokeyellow.html","name":"clpokeyellow"},{"f":"clpolicepursuit2.html","name":"clpolicepursuit2"},{"f":"clpolishedcrystal.html","name":"clpolishedcrystal"},{"f":"clpoorbunny.html","name":"clpoorbunny"},{"f":"clpopeyepapi.html","name":"clpopeyepapi"},{"f":"clporklike.html","name":"clporklike"},{"f":"clportal.html","name":"clportal"},{"f":"clportal2d.html","name":"clportal2d"},{"f":"clportaldefendersTD.html","name":"clportaldefenders T D"},{"f":"clportaldefendersfastbreak.html","name":"clportaldefendersfastbreak"},{"f":"clportalflash.html","name":"clportalflash"},{"f":"clporter.html","name":"clporter"},{"f":"clpossessquest.html","name":"clpossessquest"},{"f":"clpostal.html","name":"clpostal"},{"f":"clpotatomanseeksthetroof.html","name":"clpotatomanseeksthetroof"},{"f":"clpou.html","name":"clpou"},{"f":"clpraxisfighterx.html","name":"clpraxisfighterx"},{"f":"clprebronzeage.html","name":"clprebronzeage"},{"f":"clprecivilationbronzeage.html","name":"clprecivilationbronzeage"},{"f":"clprehistoricshark.html","name":"clprehistoricshark"},{"f":"clprimary.html","name":"clprimary"},{"f":"clpullfrog.html","name":"clpullfrog"},{"f":"clpunchout.html","name":"clpunchout"},{"f":"clpunchthedrump.html","name":"clpunchthedrump"},{"f":"clpunchthetrump.html","name":"clpunchthetrump"},{"f":"clpuppethockey.html","name":"clpuppethockey"},{"f":"clpushyourluck.html","name":"clpushyourluck"},{"f":"clpuyopuyofever.html","name":"clpuyopuyofever"},{"f":"clpvz.html","name":"clpvz"},{"f":"clpvz2.html","name":"clpvz2"},{"f":"clpvz2gardenless.html","name":"clpvz2gardenless"},{"f":"clpyrotoad.html","name":"clpyrotoad"},{"f":"clqbert.html","name":"clqbert"},{"f":"clquake2.html","name":"clquake2"},{"f":"clquake3.html","name":"clquake3"},{"f":"clquake64.html","name":"clquake64"},{"f":"clquickieworld.html","name":"clquickieworld"},{"f":"clqwop.html","name":"clqwop"},{"f":"clracemaster3d.html","name":"clracemaster3d"},{"f":"clracingarena.html","name":"clracingarena"},{"f":"clradicalred.html","name":"clradicalred"},{"f":"clradracer.html","name":"clradracer"},{"f":"clraftwars.html","name":"clraftwars"},{"f":"clraftwars2.html","name":"clraftwars2"},{"f":"clragdoll-io.html","name":"clragdoll-io"},{"f":"clragdollarchers.html","name":"clragdollarchers"},{"f":"clragdollhit.html","name":"clragdollhit"},{"f":"clragdollrunners.html","name":"clragdollrunners"},{"f":"clragdollsoccer.html","name":"clragdollsoccer"},{"f":"clragollhit.html","name":"clragollhit"},{"f":"clrainbowsix.html","name":"clrainbowsix"},{"f":"clrainbowsixalt.html","name":"clrainbowsixalt"},{"f":"clray1.html","name":"clray1"},{"f":"clray2.html","name":"clray2"},{"f":"clrayman.html","name":"clrayman"},{"f":"clraze.html","name":"clraze"},{"f":"clraze2.html","name":"clraze2"},{"f":"clraze3.html","name":"clraze3"},{"f":"clre3.html","name":"clre3"},{"f":"clreachthecore.html","name":"clreachthecore"},{"f":"clrealflightsim.html","name":"clrealflightsim"},{"f":"clrebuild.html","name":"clrebuild"},{"f":"clrebuild2.html","name":"clrebuild2"},{"f":"clrecoil.html","name":"clrecoil"},{"f":"clredball.html","name":"clredball"},{"f":"clredball2.html","name":"clredball2"},{"f":"clredball3.html","name":"clredball3"},{"f":"clredball4.html","name":"clredball4"},{"f":"clredball4vol2.html","name":"clredball4vol2"},{"f":"clredball4vol3.html","name":"clredball4vol3"},{"f":"clredhanded.html","name":"clredhanded"},{"f":"clredtierunner.html","name":"clredtierunner"},{"f":"clredvsblue2.html","name":"clredvsblue2"},{"f":"clredvsbluewar.html","name":"clredvsbluewar"},{"f":"clreignofcentipede.html","name":"clreignofcentipede"},{"f":"clrenegades.html","name":"clrenegades"},{"f":"clresidentevil.html","name":"clresidentevil"},{"f":"clresidentevil2.html","name":"clresidentevil2"},{"f":"clresizer.html","name":"clresizer"},{"f":"clresortempire.html","name":"clresortempire"},{"f":"clretrobowl.html","name":"clretrobowl"},{"f":"clretrobowlcollege.html","name":"clretrobowlcollege"},{"f":"clretrohighway.html","name":"clretrohighway"},{"f":"clretropingpong.html","name":"clretropingpong"},{"f":"clreturnman.html","name":"clreturnman"},{"f":"clreturnman2.html","name":"clreturnman2"},{"f":"clreturntoriddleschool.html","name":"clreturntoriddleschool"},{"f":"clrevolutionidle.html","name":"clrevolutionidle"},{"f":"clrhythmheaven.html","name":"clrhythmheaven"},{"f":"clrhythymymheaven.html","name":"clrhythymymheaven"},{"f":"clricochetkills2.html","name":"clricochetkills2"},{"f":"clriddlemiddleschool.html","name":"clriddlemiddleschool"},{"f":"clriddleschool.html","name":"clriddleschool"},{"f":"clriddleschool2.html","name":"clriddleschool2"},{"f":"clriddleschool3.html","name":"clriddleschool3"},{"f":"clriddleschool445544444$$444$444.html","name":"clriddleschool445544444$$444$444"},{"f":"clriddletransfer.html","name":"clriddletransfer"},{"f":"clriddletransfer2.html","name":"clriddletransfer2"},{"f":"clridgeracer.html","name":"clridgeracer"},{"f":"clroadfighter.html","name":"clroadfighter"},{"f":"clroadoffury.html","name":"clroadoffury"},{"f":"clroadofthedead.html","name":"clroadofthedead"},{"f":"clroadofthedead2.html","name":"clroadofthedead2"},{"f":"clroblox.html","name":"clroblox"},{"f":"clrocketjump.html","name":"clrocketjump"},{"f":"clrocketknightadventures.html","name":"clrocketknightadventures"},{"f":"clrocketleague.html","name":"clrocketleague"},{"f":"clrocketpult.html","name":"clrocketpult"},{"f":"clrocketsoccerderby.html","name":"clrocketsoccerderby"},{"f":"clrodha.html","name":"clrodha"},{"f":"clroguesoul.html","name":"clroguesoul"},{"f":"clroguesoul2.html","name":"clroguesoul2"},{"f":"clrollerballer.html","name":"clrollerballer"},{"f":"clrollingsky.html","name":"clrollingsky"},{"f":"clrollyvortex.html","name":"clrollyvortex"},{"f":"clrolypolymonster.html","name":"clrolypolymonster"},{"f":"clrooftopsnipers.html","name":"clrooftopsnipers"},{"f":"clrooftopsnipers2.html","name":"clrooftopsnipers2"},{"f":"clroomclicker.html","name":"clroomclicker"},{"f":"clrotate.html","name":"clrotate"},{"f":"clrouletteknight.html","name":"clrouletteknight"},{"f":"clruffle.html","name":"clruffle"},{"f":"clrun-2.html","name":"clrun-2"},{"f":"clrun.html","name":"clrun"},{"f":"clrun2.html","name":"clrun2"},{"f":"clrun3.html","name":"clrun3"},{"f":"clrussiancardriver.html","name":"clrussiancardriver"},{"f":"clsandboxcity.html","name":"clsandboxcity"},{"f":"clsandboxels.html","name":"clsandboxels"},{"f":"clsandsofthecoliseum.html","name":"clsandsofthecoliseum"},{"f":"clsandtris.html","name":"clsandtris"},{"f":"clsantarun.html","name":"clsantarun"},{"f":"clsaszombieassault2.html","name":"clsaszombieassault2"},{"f":"clsaulgoodmanrun.html","name":"clsaulgoodmanrun"},{"f":"clscarletshift.html","name":"clscarletshift"},{"f":"clscarymazegame.html","name":"clscarymazegame"},{"f":"clscrapmetal3.html","name":"clscrapmetal3"},{"f":"clscrapyarddog.html","name":"clscrapyarddog"},{"f":"clscribblenauts.html","name":"clscribblenauts"},{"f":"clscubabear.html","name":"clscubabear"},{"f":"clseamongrel.html","name":"clseamongrel"},{"f":"clsecretofmana.html","name":"clsecretofmana"},{"f":"clsega2gg.html","name":"clsega2gg"},{"f":"clsentryfortress.html","name":"clsentryfortress"},{"f":"clserenitrove.html","name":"clserenitrove"},{"f":"clservingupmadness.html","name":"clservingupmadness"},{"f":"clsfk.html","name":"clsfk"},{"f":"clsfk2.html","name":"clsfk2"},{"f":"clsfklaststand.html","name":"clsfklaststand"},{"f":"clsfkleague.html","name":"clsfkleague"},{"f":"clshaggy.html","name":"clshaggy"},{"f":"clshc1.html","name":"clshc1"},{"f":"clshc2.html","name":"clshc2"},{"f":"clshc3.html","name":"clshc3"},{"f":"clshift.html","name":"clshift"},{"f":"clshift2.html","name":"clshift2"},{"f":"clshift3.html","name":"clshift3"},{"f":"clshinmegamitenseidevilsurvivor.html","name":"clshinmegamitenseidevilsurvivor"},{"f":"clshortlife.html","name":"clshortlife"},{"f":"clshredmill.html","name":"clshredmill"},{"f":"clshrek-2.html","name":"clshrek-2"},{"f":"clshrubnaut.html","name":"clshrubnaut"},{"f":"clshwultimatem.html","name":"clshwultimatem"},{"f":"clsideeffects.html","name":"clsideeffects"},{"f":"clsidepocket.html","name":"clsidepocket"},{"f":"clsierra7.html","name":"clsierra7"},{"f":"clsilenthill.html","name":"clsilenthill"},{"f":"clsilenthillalt.html","name":"clsilenthillalt"},{"f":"clsilk.html","name":"clsilk"},{"f":"clsiloshowdow.html","name":"clsiloshowdow"},{"f":"clsixwaystodie.html","name":"clsixwaystodie"},{"f":"clskateit.html","name":"clskateit"},{"f":"clskibididibidygyattohiorizzingallovertheplacestillwatermangotheoryfemboydrool.html","name":"clskibididibidygyattohiorizzingallovertheplacestillwatermangotheoryfemboydrool"},{"f":"clskibidiinthebackrooms.html","name":"clskibidiinthebackrooms"},{"f":"clskibidishooter.html","name":"clskibidishooter"},{"f":"clskong.html","name":"clskong"},{"f":"clskyrace-3d.html","name":"clskyrace-3d"},{"f":"clsliceitall.html","name":"clsliceitall"},{"f":"clslideinthewoods.html","name":"clslideinthewoods"},{"f":"clslimelabratory.html","name":"clslimelabratory"},{"f":"clslipways.html","name":"clslipways"},{"f":"clslitherio.html","name":"clslitherio"},{"f":"clslope.html","name":"clslope"},{"f":"clslope2player.html","name":"clslope2player"},{"f":"clslope3.html","name":"clslope3"},{"f":"clslopeplus.html","name":"clslopeplus"},{"f":"clslotornot.html","name":"clslotornot"},{"f":"clslowroads.html","name":"clslowroads"},{"f":"clsm63redux.html","name":"clsm63redux"},{"f":"clsmadvance2.html","name":"clsmadvance2"},{"f":"clsmadvance3.html","name":"clsmadvance3"},{"f":"clsmashkarts.html","name":"clsmashkarts"},{"f":"clsmashkartsworking.html","name":"clsmashkartsworking"},{"f":"clsmashremix.html","name":"clsmashremix"},{"f":"clsmbc.html","name":"clsmbc"},{"f":"clsmbcrossover.html","name":"clsmbcrossover"},{"f":"clsmbgameover.html","name":"clsmbgameover"},{"f":"clsnailbob.html","name":"clsnailbob"},{"f":"clsnailbob2.html","name":"clsnailbob2"},{"f":"clsnailbob3.html","name":"clsnailbob3"},{"f":"clsnailbob4space.html","name":"clsnailbob4space"},{"f":"clsnailbob5lovestory.html","name":"clsnailbob5lovestory"},{"f":"clsnakeis.html","name":"clsnakeis"},{"f":"clsnakelike.html","name":"clsnakelike"},{"f":"clsnipershot.html","name":"clsnipershot"},{"f":"clsniperv2.html","name":"clsniperv2"},{"f":"clsnowballio.html","name":"clsnowballio"},{"f":"clsnowrid.html","name":"clsnowrid"},{"f":"clsnowrideee.html","name":"clsnowrideee"},{"f":"clsnowrider.html","name":"clsnowrider"},{"f":"clsnowridergoodygumdrops.html","name":"clsnowridergoodygumdrops"},{"f":"clsnowriderrrr.html","name":"clsnowriderrrr"},{"f":"clsnowroad.html","name":"clsnowroad"},{"f":"clsoccerbros.html","name":"clsoccerbros"},{"f":"clsoccerrandom.html","name":"clsoccerrandom"},{"f":"clsoccerrandomgood.html","name":"clsoccerrandomgood"},{"f":"clsolarsandbox.html","name":"clsolarsandbox"},{"f":"clsolarsmash.html","name":"clsolarsmash"},{"f":"clsolitaire.html","name":"clsolitaire"},{"f":"clsonic1contemporary.html","name":"clsonic1contemporary"},{"f":"clsonic3andknuckles.html","name":"clsonic3andknuckles"},{"f":"clsonic3complete.html","name":"clsonic3complete"},{"f":"clsonic3dblastdx.html","name":"clsonic3dblastdx"},{"f":"clsonicadvance.html","name":"clsonicadvance"},{"f":"clsonicadvance2.html","name":"clsonicadvance2"},{"f":"clsonicadvance2sp.html","name":"clsonicadvance2sp"},{"f":"clsonicadvance3.html","name":"clsonicadvance3"},{"f":"clsonicandashuro.html","name":"clsonicandashuro"},{"f":"clsonicandknuckles.html","name":"clsonicandknuckles"},{"f":"clsonicbattle.html","name":"clsonicbattle"},{"f":"clsoniccd.html","name":"clsoniccd"},{"f":"clsonicclassiccollection.html","name":"clsonicclassiccollection"},{"f":"clsonicclassicheroes.html","name":"clsonicclassicheroes"},{"f":"clsoniccolors.html","name":"clsoniccolors"},{"f":"clsonicdeltaorigins.html","name":"clsonicdeltaorigins"},{"f":"clsoniceexeog.html","name":"clsoniceexeog"},{"f":"clsonicerazor.html","name":"clsonicerazor"},{"f":"clsonicgg.html","name":"clsonicgg"},{"f":"clsonicjam.html","name":"clsonicjam"},{"f":"clsonicmegamix.html","name":"clsonicmegamix"},{"f":"clsonicr.html","name":"clsonicr"},{"f":"clsonicralt.html","name":"clsonicralt"},{"f":"clsonicrevert.html","name":"clsonicrevert"},{"f":"clsonicrush.html","name":"clsonicrush"},{"f":"clsonicrushadventure.html","name":"clsonicrushadventure"},{"f":"clsonicspinball.html","name":"clsonicspinball"},{"f":"clsonicthehedgehog.html","name":"clsonicthehedgehog"},{"f":"clsonicthehedgehog2.html","name":"clsonicthehedgehog2"},{"f":"clsonicthehedgehog3.html","name":"clsonicthehedgehog3"},{"f":"clsonny2.html","name":"clsonny2"},{"f":"clsouljumper.html","name":"clsouljumper"},{"f":"clspacebarclicker.html","name":"clspacebarclicker"},{"f":"clspacecompany.html","name":"clspacecompany"},{"f":"clspaceinvaders.html","name":"clspaceinvaders"},{"f":"clspaceiskey.html","name":"clspaceiskey"},{"f":"clspaceiskey2.html","name":"clspaceiskey2"},{"f":"clspaceiskeyxmas.html","name":"clspaceiskeyxmas"},{"f":"clspacewarsbattleground.html","name":"clspacewarsbattleground"},{"f":"clspacewaves.html","name":"clspacewaves"},{"f":"clspeedperclick.html","name":"clspeedperclick"},{"f":"clspeedstars.html","name":"clspeedstars"},{"f":"clspewer.html","name":"clspewer"},{"f":"clspiralroll.html","name":"clspiralroll"},{"f":"clsprunked.html","name":"clsprunked"},{"f":"clsprunki.html","name":"clsprunki"},{"f":"clsprunkiclicker.html","name":"clsprunkiclicker"},{"f":"clsquidplayground.html","name":"clsquidplayground"},{"f":"clstackballio.html","name":"clstackballio"},{"f":"clstacktris.html","name":"clstacktris"},{"f":"clstackydash.html","name":"clstackydash"},{"f":"clstarfox.html","name":"clstarfox"},{"f":"clstarfox64.html","name":"clstarfox64"},{"f":"clstarraiders.html","name":"clstarraiders"},{"f":"clstateio.html","name":"clstateio"},{"f":"clstation141.html","name":"clstation141"},{"f":"clstationmeltdown.html","name":"clstationmeltdown"},{"f":"clstationsaturn.html","name":"clstationsaturn"},{"f":"clsteakandjake.html","name":"clsteakandjake"},{"f":"clstealbrainrotonline.html","name":"clstealbrainrotonline"},{"f":"clstealthassassin.html","name":"clstealthassassin"},{"f":"clstealthmaster.html","name":"clstealthmaster"},{"f":"clsteelempire.html","name":"clsteelempire"},{"f":"clsteelsurge.html","name":"clsteelsurge"},{"f":"clstickarchersbattle.html","name":"clstickarchersbattle"},{"f":"clstickfighter.html","name":"clstickfighter"},{"f":"clstickjetchallenge.html","name":"clstickjetchallenge"},{"f":"clstickmanandguns.html","name":"clstickmanandguns"},{"f":"clstickmanclash.html","name":"clstickmanclash"},{"f":"clstickmanduel.html","name":"clstickmanduel"},{"f":"clstickmangtacity.html","name":"clstickmangtacity"},{"f":"clstickmanhook.html","name":"clstickmanhook"},{"f":"clstickmankombat2d.html","name":"clstickmankombat2d"},{"f":"clstickmanstealingdiamond.html","name":"clstickmanstealingdiamond"},{"f":"clstickmerge.html","name":"clstickmerge"},{"f":"clstickminairship.html","name":"clstickminairship"},{"f":"clstickminbreakingbank.html","name":"clstickminbreakingbank"},{"f":"clstickminescapingprison.html","name":"clstickminescapingprison"},{"f":"clstickminfleecomplex.html","name":"clstickminfleecomplex"},{"f":"clstickrpgcomplete.html","name":"clstickrpgcomplete"},{"f":"clstickslasher.html","name":"clstickslasher"},{"f":"clstickwar.html","name":"clstickwar"},{"f":"clstickwar2.html","name":"clstickwar2"},{"f":"clstormthehouse.html","name":"clstormthehouse"},{"f":"clstormthehouse3.html","name":"clstormthehouse3"},{"f":"clstrangejournet.html","name":"clstrangejournet"},{"f":"clstreangeropepolice.html","name":"clstreangeropepolice"},{"f":"clstreetfighter2.html","name":"clstreetfighter2"},{"f":"clstreetfighter2turbo.html","name":"clstreetfighter2turbo"},{"f":"clstreetfighteralpha3.html","name":"clstreetfighteralpha3"},{"f":"clstreetfighterumuhsomething.html","name":"clstreetfighterumuhsomething"},{"f":"clstreetofrage.html","name":"clstreetofrage"},{"f":"clstreetofrage2.html","name":"clstreetofrage2"},{"f":"clstreetofrage3.html","name":"clstreetofrage3"},{"f":"clstrikeforceheroes.html","name":"clstrikeforceheroes"},{"f":"clstrikeforceheroes2.html","name":"clstrikeforceheroes2"},{"f":"clstrikeforceheroes3.html","name":"clstrikeforceheroes3"},{"f":"clstrikerdummies.html","name":"clstrikerdummies"},{"f":"clstylesavvy.html","name":"clstylesavvy"},{"f":"clsubwaysurfersbarcelona.html","name":"clsubwaysurfersbarcelona"},{"f":"clsubwaysurfersbeijing.html","name":"clsubwaysurfersbeijing"},{"f":"clsubwaysurfersberlin.html","name":"clsubwaysurfersberlin"},{"f":"clsubwaysurfersbuenosaires.html","name":"clsubwaysurfersbuenosaires"},{"f":"clsubwaysurfershavana.html","name":"clsubwaysurfershavana"},{"f":"clsubwaysurfershouston.html","name":"clsubwaysurfershouston"},{"f":"clsubwaysurfersiceland.html","name":"clsubwaysurfersiceland"},{"f":"clsubwaysurferslondon.html","name":"clsubwaysurferslondon"},{"f":"clsubwaysurfersmexico.html","name":"clsubwaysurfersmexico"},{"f":"clsubwaysurfersmiami.html","name":"clsubwaysurfersmiami"},{"f":"clsubwaysurfersmonaco.html","name":"clsubwaysurfersmonaco"},{"f":"clsubwaysurfersneworeleans.html","name":"clsubwaysurfersneworeleans"},{"f":"clsubwaysurfersneworleans.html","name":"clsubwaysurfersneworleans"},{"f":"clsubwaysurferssanfrancisco (1).html","name":"clsubwaysurferssanfrancisco (1)"},{"f":"clsubwaysurferssanfrancisco(1).html","name":"clsubwaysurferssanfrancisco(1)"},{"f":"clsubwaysurferssanfrancisco.html","name":"clsubwaysurferssanfrancisco"},{"f":"clsubwaysurfersstpetersburg.html","name":"clsubwaysurfersstpetersburg"},{"f":"clsubwaysurferswinterholiday.html","name":"clsubwaysurferswinterholiday"},{"f":"clsubwaysurferszurich.html","name":"clsubwaysurferszurich"},{"f":"clsugarsugar.html","name":"clsugarsugar"},{"f":"clsuika.html","name":"clsuika"},{"f":"clsuikapico.html","name":"clsuikapico"},{"f":"clsummerRider3D.html","name":"clsummer Rider3 D"},{"f":"clsunandmoon.html","name":"clsunandmoon"},{"f":"clsuperbomberman.html","name":"clsuperbomberman"},{"f":"clsuperbomberman2.html","name":"clsuperbomberman2"},{"f":"clsuperbomberman3.html","name":"clsuperbomberman3"},{"f":"clsuperbomberman4.html","name":"clsuperbomberman4"},{"f":"clsuperbomberman5.html","name":"clsuperbomberman5"},{"f":"clsupercarrush.html","name":"clsupercarrush"},{"f":"clsupercastlevaniaVI.html","name":"clsupercastlevania V I"},{"f":"clsuperchibiknight.html","name":"clsuperchibiknight"},{"f":"clsupercold.html","name":"clsupercold"},{"f":"clsuperdarkdeception.html","name":"clsuperdarkdeception"},{"f":"clsuperdiagonalmario2.html","name":"clsuperdiagonalmario2"},{"f":"clsuperfighters.html","name":"clsuperfighters"},{"f":"clsuperhot.html","name":"clsuperhot"},{"f":"clsuperhotlinemiami.html","name":"clsuperhotlinemiami"},{"f":"clsuperhouseofdeadninjas.html","name":"clsuperhouseofdeadninjas"},{"f":"clsuperislandadventure.html","name":"clsuperislandadventure"},{"f":"clsuperliquidsoccer.html","name":"clsuperliquidsoccer"},{"f":"clsupermario.html","name":"clsupermario"},{"f":"clsupermario63.html","name":"clsupermario63"},{"f":"clsupermario64.html","name":"clsupermario64"},{"f":"clsupermario64ds.html","name":"clsupermario64ds"},{"f":"clsupermarioallstars.html","name":"clsupermarioallstars"},{"f":"clsupermariobros.html","name":"clsupermariobros"},{"f":"clsupermariobros2.html","name":"clsupermariobros2"},{"f":"clsupermariobros2us.html","name":"clsupermariobros2us"},{"f":"clsupermariobros3.html","name":"clsupermariobros3"},{"f":"clsupermariobros3real.html","name":"clsupermariobros3real"},{"f":"clsupermariokart.html","name":"clsupermariokart"},{"f":"clsupermarioland.html","name":"clsupermarioland"},{"f":"clsupermarioland2.html","name":"clsupermarioland2"},{"f":"clsupermariomon.html","name":"clsupermariomon"},{"f":"clsupermariorpg.html","name":"clsupermariorpg"},{"f":"clsupermarioworld.html","name":"clsupermarioworld"},{"f":"clsupermarioworld2.html","name":"clsupermarioworld2"},{"f":"clsupermetroid.html","name":"clsupermetroid"},{"f":"clsupermonkeyballjr.html","name":"clsupermonkeyballjr"},{"f":"clsupernoahsark3D.html","name":"clsupernoahsark3 D"},{"f":"clsuperoliverworld.html","name":"clsuperoliverworld"},{"f":"clsuperpickleballadventure.html","name":"clsuperpickleballadventure"},{"f":"clsuperpunchout.html","name":"clsuperpunchout"},{"f":"clsuperpuzzlefighter2turbo.html","name":"clsuperpuzzlefighter2turbo"},{"f":"clsuperpuzzlefighter2turboalt.html","name":"clsuperpuzzlefighter2turboalt"},{"f":"clsuperscribblenauts.html","name":"clsuperscribblenauts"},{"f":"clsupersmashbros.html","name":"clsupersmashbros"},{"f":"clsupersmashflash.html","name":"clsupersmashflash"},{"f":"clsupersmashflash2.html","name":"clsupersmashflash2"},{"f":"clsupersmashflash2butdifversion.html","name":"clsupersmashflash2butdifversion"},{"f":"clsupertiltbros.html","name":"clsupertiltbros"},{"f":"clsupitdept.html","name":"clsupitdept"},{"f":"clsupremeduelist.html","name":"clsupremeduelist"},{"f":"clsurvevio.html","name":"clsurvevio"},{"f":"clsurvivalracev2.html","name":"clsurvivalracev2"},{"f":"clsushicat.html","name":"clsushicat"},{"f":"clsushicat2.html","name":"clsushicat2"},{"f":"clsushiunroll.html","name":"clsushiunroll"},{"f":"clswerve.html","name":"clswerve"},{"f":"clswitchblade.html","name":"clswitchblade"},{"f":"clswordandshieldultimateplus.html","name":"clswordandshieldultimateplus"},{"f":"clswordfight.html","name":"clswordfight"},{"f":"clswordplay.html","name":"clswordplay"},{"f":"clswordsandsandals.html","name":"clswordsandsandals"},{"f":"clswordsandsandals2.html","name":"clswordsandsandals2"},{"f":"clswordsandsouls.html","name":"clswordsandsouls"},{"f":"clsydneyshark.html","name":"clsydneyshark"},{"f":"cltabletanks.html","name":"cltabletanks"},{"f":"cltabletennisworldtour.html","name":"cltabletennisworldtour"},{"f":"cltag-.html","name":"cltag-"},{"f":"cltagc3.html","name":"cltagc3"},{"f":"cltaisei.html","name":"cltaisei"},{"f":"cltakeover.html","name":"cltakeover"},{"f":"cltallmanrun.html","name":"cltallmanrun"},{"f":"cltankmayhem.html","name":"cltankmayhem"},{"f":"cltankpixel.html","name":"cltankpixel"},{"f":"cltanukisunset.html","name":"cltanukisunset"},{"f":"cltanukisunsetuhhhhhhhh.html","name":"cltanukisunsetuhhhhhhhh"},{"f":"cltapper.html","name":"cltapper"},{"f":"cltaproad.html","name":"cltaproad"},{"f":"cltastyplanet.html","name":"cltastyplanet"},{"f":"cltboilambeternal.html","name":"cltboilambeternal"},{"f":"cltecmobowl.html","name":"cltecmobowl"},{"f":"cltelephonetrouble.html","name":"cltelephonetrouble"},{"f":"cltelocation.html","name":"cltelocation"},{"f":"cltempest2000.html","name":"cltempest2000"},{"f":"cltempleofboom.html","name":"cltempleofboom"},{"f":"cltemplerun2.html","name":"cltemplerun2"},{"f":"cltempoverdose.html","name":"cltempoverdose"},{"f":"clterra.html","name":"clterra"},{"f":"clterritorialio.html","name":"clterritorialio"},{"f":"clterritorywar.html","name":"clterritorywar"},{"f":"cltetris.html","name":"cltetris"},{"f":"cltetrisattack.html","name":"cltetrisattack"},{"f":"cltetrisgba.html","name":"cltetrisgba"},{"f":"clthanksforremindingmeihadtofixthis.html","name":"clthanksforremindingmeihadtofixthis"},{"f":"cltheclassroom.html","name":"cltheclassroom"},{"f":"cltheclassroom2.html","name":"cltheclassroom2"},{"f":"cltheclassroom3.html","name":"cltheclassroom3"},{"f":"clthedeadseat.html","name":"clthedeadseat"},{"f":"clthedeepestsleep.html","name":"clthedeepestsleep"},{"f":"cltheenchantedcave2.html","name":"cltheenchantedcave2"},{"f":"cltheimpossiblegame.html","name":"cltheimpossiblegame"},{"f":"cltheincrediblemachine.html","name":"cltheincrediblemachine"},{"f":"clthelaststand.html","name":"clthelaststand"},{"f":"clthelaststandunioncity (1).html","name":"clthelaststandunioncity (1)"},{"f":"clthelaststandunioncity.html","name":"clthelaststandunioncity"},{"f":"clthemaninthewindow.html","name":"clthemaninthewindow"},{"f":"clthemepark.html","name":"clthemepark"},{"f":"clthepit.html","name":"clthepit"},{"f":"clthereisnofile.html","name":"clthereisnofile"},{"f":"clthermomorph.html","name":"clthermomorph"},{"f":"clthisistheonlylevel.html","name":"clthisistheonlylevel"},{"f":"clthisistheonlylevel2.html","name":"clthisistheonlylevel2"},{"f":"clthisistheonlyleveltoo.html","name":"clthisistheonlyleveltoo"},{"f":"clthreegoblets.html","name":"clthreegoblets"},{"f":"clthrowapotato.html","name":"clthrowapotato"},{"f":"clthrowapotatoagain.html","name":"clthrowapotatoagain"},{"f":"clthwack.html","name":"clthwack"},{"f":"cltimeshooter2.html","name":"cltimeshooter2"},{"f":"cltimeshooter3.html","name":"cltimeshooter3"},{"f":"cltimewarriors.html","name":"cltimewarriors"},{"f":"cltinyfishing.html","name":"cltinyfishing"},{"f":"cltmnt.html","name":"cltmnt"},{"f":"cltoastarling.html","name":"cltoastarling"},{"f":"cltoasterball.html","name":"cltoasterball"},{"f":"cltombofthemass.html","name":"cltombofthemass"},{"f":"cltommorowandyesterday.html","name":"cltommorowandyesterday"},{"f":"cltomodachicollection.html","name":"cltomodachicollection"},{"f":"cltonyhawkskater2.html","name":"cltonyhawkskater2"},{"f":"cltonyhawkskater4.html","name":"cltonyhawkskater4"},{"f":"cltonyhawksunderground.html","name":"cltonyhawksunderground"},{"f":"cltoomanytypes.html","name":"cltoomanytypes"},{"f":"cltopspeedracing3d.html","name":"cltopspeedracing3d"},{"f":"cltosstheturtle.html","name":"cltosstheturtle"},{"f":"cltotm.html","name":"cltotm"},{"f":"cltowerblocks.html","name":"cltowerblocks"},{"f":"cltowercrash3d.html","name":"cltowercrash3d"},{"f":"cltownscraper.html","name":"cltownscraper"},{"f":"cltrace.html","name":"cltrace"},{"f":"cltrafficjam3d.html","name":"cltrafficjam3d"},{"f":"cltrapthecat.html","name":"cltrapthecat"},{"f":"cltrechoroustrials.html","name":"cltrechoroustrials"},{"f":"cltrechoroustrialspart2.html","name":"cltrechoroustrialspart2"},{"f":"cltriachnid.html","name":"cltriachnid"},{"f":"cltripleplay2000.html","name":"cltripleplay2000"},{"f":"cltriviacrack.html","name":"cltriviacrack"},{"f":"cltrollfacequest1.html","name":"cltrollfacequest1"},{"f":"cltrollfacequest10.html","name":"cltrollfacequest10"},{"f":"cltrollfacequest11.html","name":"cltrollfacequest11"},{"f":"cltrollfacequest12.html","name":"cltrollfacequest12"},{"f":"cltrollfacequest13.html","name":"cltrollfacequest13"},{"f":"cltrollfacequest2.html","name":"cltrollfacequest2"},{"f":"cltrollfacequest3.html","name":"cltrollfacequest3"},{"f":"cltrollfacequest4.html","name":"cltrollfacequest4"},{"f":"cltrollfacequest5.html","name":"cltrollfacequest5"},{"f":"cltrollfacequest6.html","name":"cltrollfacequest6"},{"f":"cltrollfacequest7.html","name":"cltrollfacequest7"},{"f":"cltrollfacequest8.html","name":"cltrollfacequest8"},{"f":"cltrollfacequest9.html","name":"cltrollfacequest9"},{"f":"cltrucksim.html","name":"cltrucksim"},{"f":"cltubejumpers.html","name":"cltubejumpers"},{"f":"cltunnelrush.html","name":"cltunnelrush"},{"f":"cltunnelrushbetter.html","name":"cltunnelrushbetter"},{"f":"clturbostars.html","name":"clturbostars"},{"f":"clturokdinosaurhunter.html","name":"clturokdinosaurhunter"},{"f":"cltwinshot (1).html","name":"cltwinshot (1)"},{"f":"cltwinshot(1).html","name":"cltwinshot(1)"},{"f":"cltwinshot.html","name":"cltwinshot"},{"f":"cltwistedmetal.html","name":"cltwistedmetal"},{"f":"cltwistedmetal2.html","name":"cltwistedmetal2"},{"f":"cltwoball3d.html","name":"cltwoball3d"},{"f":"clucds.html","name":"clucds"},{"f":"cluckyblockobbyEUOPHRATESRIVER.html","name":"cluckyblockobby E U O P H R A T E S R I V E R"},{"f":"clufoswampoddysey.html","name":"clufoswampoddysey"},{"f":"clultimateassassian2.html","name":"clultimateassassian2"},{"f":"clultimateassassian3.html","name":"clultimateassassian3"},{"f":"clultimatemortalkombat.html","name":"clultimatemortalkombat"},{"f":"clultimatemortalkombat3.html","name":"clultimatemortalkombat3"},{"f":"clultrakill.html","name":"clultrakill"},{"f":"clumstickmangameidkiforgor.html","name":"clumstickmangameidkiforgor"},{"f":"cluncannycatgolf.html","name":"cluncannycatgolf"},{"f":"clunderneath.html","name":"clunderneath"},{"f":"clundertaler.html","name":"clundertaler"},{"f":"clundertaleyellow.html","name":"clundertaleyellow"},{"f":"clunfairmario.html","name":"clunfairmario"},{"f":"clunfairmarioworkquestionmark.html","name":"clunfairmarioworkquestionmark"},{"f":"clunfairundyne.html","name":"clunfairundyne"},{"f":"clunicyclehero.html","name":"clunicyclehero"},{"f":"cluno.html","name":"cluno"},{"f":"cluntime.html","name":"cluntime"},{"f":"clupgradecomplete.html","name":"clupgradecomplete"},{"f":"clupgradecomplete2.html","name":"clupgradecomplete2"},{"f":"clupslash.html","name":"clupslash"},{"f":"clvampiresurvivors.html","name":"clvampiresurvivors"},{"f":"clvanguard.html","name":"clvanguard"},{"f":"clvaportrails.html","name":"clvaportrails"},{"f":"clvex.html","name":"clvex"},{"f":"clvex2.html","name":"clvex2"},{"f":"clvex3.html","name":"clvex3"},{"f":"clvex3xmas.html","name":"clvex3xmas"},{"f":"clvex4.html","name":"clvex4"},{"f":"clvex5.html","name":"clvex5"},{"f":"clvex6.html","name":"clvex6"},{"f":"clvex7.html","name":"clvex7"},{"f":"clvex8.html","name":"clvex8"},{"f":"clvexchallenges.html","name":"clvexchallenges"},{"f":"clvexx3m.html","name":"clvexx3m"},{"f":"clvexx3m2.html","name":"clvexx3m2"},{"f":"clvillager.html","name":"clvillager"},{"f":"clvincentmansionofthedead.html","name":"clvincentmansionofthedead"},{"f":"clvisitor.html","name":"clvisitor"},{"f":"clvolleyrandom.html","name":"clvolleyrandom"},{"f":"clvollyballchallenge.html","name":"clvollyballchallenge"},{"f":"clvvvvvv.html","name":"clvvvvvv"},{"f":"clwaluigitacostand.html","name":"clwaluigitacostand"},{"f":"clwarfare1944.html","name":"clwarfare1944"},{"f":"clwarioland4.html","name":"clwarioland4"},{"f":"clwariowarediy.html","name":"clwariowarediy"},{"f":"clwariowareinc.html","name":"clwariowareinc"},{"f":"clwartheknight.html","name":"clwartheknight"},{"f":"clwaterpoolio.html","name":"clwaterpoolio"},{"f":"clwavedash.html","name":"clwavedash"},{"f":"clwaverace64.html","name":"clwaverace64"},{"f":"clwaverun.html","name":"clwaverun"},{"f":"clwebecomewhatwebehold.html","name":"clwebecomewhatwebehold"},{"f":"clwebfishing.html","name":"clwebfishing"},{"f":"clweltling.html","name":"clweltling"},{"f":"clwermhole.html","name":"clwermhole"},{"f":"clwhackthetheif.html","name":"clwhackthetheif"},{"f":"clwhackyourboss.html","name":"clwhackyourboss"},{"f":"clwhackyourcomputer.html","name":"clwhackyourcomputer"},{"f":"clwheeliebike.html","name":"clwheeliebike"},{"f":"clwheely.html","name":"clwheely"},{"f":"clwheely2.html","name":"clwheely2"},{"f":"clwheely3.html","name":"clwheely3"},{"f":"clwheely4.html","name":"clwheely4"},{"f":"clwheely5.html","name":"clwheely5"},{"f":"clwheely6.html","name":"clwheely6"},{"f":"clwheely7.html","name":"clwheely7"},{"f":"clwheely8.html","name":"clwheely8"},{"f":"clwindowsdoors.html","name":"clwindowsdoors"},{"f":"clwinterfalling.html","name":"clwinterfalling"},{"f":"clwipeout2097.html","name":"clwipeout2097"},{"f":"clwipeout2097alt.html","name":"clwipeout2097alt"},{"f":"clwitchcrafttd.html","name":"clwitchcrafttd"},{"f":"clwolfenstein.html","name":"clwolfenstein"},{"f":"clwolfenstein3d.html","name":"clwolfenstein3d"},{"f":"clwoodworm.html","name":"clwoodworm"},{"f":"clwordle.html","name":"clwordle"},{"f":"clworldcup98.html","name":"clworldcup98"},{"f":"clworldguessr.html","name":"clworldguessr"},{"f":"clworldshardestgame.html","name":"clworldshardestgame"},{"f":"clworldshardestgame2.html","name":"clworldshardestgame2"},{"f":"clworldshardestgame3.html","name":"clworldshardestgame3"},{"f":"clworldshardestgame4.html","name":"clworldshardestgame4"},{"f":"clwrassling.html","name":"clwrassling"},{"f":"clwrestlebros.html","name":"clwrestlebros"},{"f":"clyanderesimulator.html","name":"clyanderesimulator"},{"f":"clyarsrevenge.html","name":"clyarsrevenge"},{"f":"clyellow.html","name":"clyellow"},{"f":"clyouarelucky.html","name":"clyouarelucky"},{"f":"clyouvs100skibidi(1).html","name":"clyouvs100skibidi(1)"},{"f":"clyouvs100skibidi.html","name":"clyouvs100skibidi"},{"f":"clyumenikki.html","name":"clyumenikki"},{"f":"clzelda2thelegendoflink.html","name":"clzelda2thelegendoflink"},{"f":"clzeldaminishcap.html","name":"clzeldaminishcap"},{"f":"clzenword.html","name":"clzenword"},{"f":"clzombieexploder.html","name":"clzombieexploder"},{"f":"clzombieroad.html","name":"clzombieroad"},{"f":"clzombierush.html","name":"clzombierush"},{"f":"clzombiesatemyneighboors.html","name":"clzombiesatemyneighboors"},{"f":"clzombopaclypse2.html","name":"clzombopaclypse2"},{"f":"clzombotron.html","name":"clzombotron"},{"f":"clzombotron2.html","name":"clzombotron2"},{"f":"clzombotronreboot.html","name":"clzombotronreboot"},{"f":"clzrist.html","name":"clzrist"},{"f":"clzuma.html","name":"clzuma"},{"f":"clzumashooter.html","name":"clzumashooter"},{"f":"clÖoo.html","name":"clÖoo"},{"f":"clʘ.html","name":"clʘ"},{"f":"codeorg.html","name":"codeorg"},{"f":"eaglercraft.1.5.2.html","name":"eaglercraft.1.5.2"},{"f":"marbleracer.html","name":"marbleracer"},{"f":"mariobuilder64.html","name":"mariobuilder64"},{"f":"mortalkombat4.html","name":"mortalkombat4"},{"f":"polytrackbutnotflagged.html","name":"polytrackbutnotflagged"},{"f":"rocketknight2.html","name":"rocketknight2"},{"f":"sandstone.html","name":"sandstone"},{"f":"sdf.html","name":"sdf"},{"f":"snowbros.html","name":"snowbros"},{"f":"superdromebugs.html","name":"superdromebugs"},{"f":"vvvvvv.html","name":"vvvvvv"},{"f":"wilywars.html","name":"wilywars"}];
+var GRADS=["linear-gradient(135deg,#7b2cff,#3a00b7)","linear-gradient(135deg,#ff2d55,#8b0000)","linear-gradient(135deg,#00c9ff,#007a8a)","linear-gradient(135deg,#f7971e,#ffd200)","linear-gradient(135deg,#56ab2f,#1a6b00)","linear-gradient(135deg,#f953c6,#b91d73)","linear-gradient(135deg,#4facfe,#00f2fe)","linear-gradient(135deg,#fa709a,#fee140)","linear-gradient(135deg,#a18cd1,#fbc2eb)","linear-gradient(135deg,#fda085,#f6d365)","linear-gradient(135deg,#84fab0,#8fd3f4)","linear-gradient(135deg,#a1c4fd,#c2e9fb)","linear-gradient(135deg,#fd7979,#fb923c)","linear-gradient(135deg,#667eea,#764ba2)","linear-gradient(135deg,#f093fb,#f5576c)","linear-gradient(135deg,#4481eb,#04befe)","linear-gradient(135deg,#0ba360,#3cba92)","linear-gradient(135deg,#ff9a9e,#fad0c4)","linear-gradient(135deg,#a18cd1,#fbc2eb)","linear-gradient(135deg,#fccb90,#d57eeb)","linear-gradient(135deg,#e0c3fc,#8ec5fc)","linear-gradient(135deg,#f77062,#fe5196)","linear-gradient(135deg,#c3cfe2,#c3cfe2)","linear-gradient(135deg,#89f7fe,#66a6ff)","linear-gradient(135deg,#fddb92,#d1fdff)","linear-gradient(135deg,#96fbc4,#f9f586)"];
+var ADMINPW="WkdsemNHeGhlV1pzWlhnPQ==";
+var state={coins:0,xp:0,level:1,favorites:[],gamesPlayed:0,filterCat:"alla",search:"",page:0,perPage:60,user:null,isAdmin:false,settings:{animations:true,sounds:true,darkMode:false,theme:"purple",lang:"en"}};
+function getGrad(name){var n=name.toLowerCase();if(n.includes('minecraft')||n.includes('eagler')||n.includes('mine')||n.includes('craft'))return 'linear-gradient(135deg,#56ab2f,#a8e063)';if(n.includes('slope')||n.includes('run')||n.includes('race')||n.includes('speed'))return 'linear-gradient(135deg,#f093fb,#f5576c)';if(n.includes('chess')||n.includes('puzzle')||n.includes('word'))return 'linear-gradient(135deg,#4facfe,#00f2fe)';if(n.includes('snake')||n.includes('pac')||n.includes('tetris'))return 'linear-gradient(135deg,#43e97b,#38f9d7)';if(n.includes('shoot')||n.includes('gun')||n.includes('war'))return 'linear-gradient(135deg,#f7971e,#ffd200)';if(n.includes('car')||n.includes('drift')||n.includes('drive'))return 'linear-gradient(135deg,#ffecd2,#fcb69f)';if(n.includes('io'))return 'linear-gradient(135deg,#30cfd0,#667eea)';var h=0;for(var i=0;i<n.length;i++)h=(h*31+n.charCodeAt(i))&0xffff;var g=['linear-gradient(135deg,#fd7979,#fb923c)','linear-gradient(135deg,#f953c6,#b91d73)','linear-gradient(135deg,#43e97b,#38f9d7)','linear-gradient(135deg,#4facfe,#00f2fe)','linear-gradient(135deg,#fa709a,#fee140)','linear-gradient(135deg,#30cfd0,#667eea)','linear-gradient(135deg,#a18cd1,#fbc2eb)','linear-gradient(135deg,#ffecd2,#fcb69f)'];return g[h%g.length];}
+function getGameIcon(name){var n=name.toLowerCase();if(n.includes('minecraft')||n.includes('eagler')||n.includes('mine')||n.includes('craft'))return '⛏️';if(n.includes('fortnite')||n.includes('battle')||n.includes('shoot')||n.includes('gun'))return '🔫';if(n.includes('slope')||n.includes('run')||n.includes('race'))return '🏃';if(n.includes('chess')||n.includes('puzzle')||n.includes('word'))return '🧩';if(n.includes('snake'))return '🐍';if(n.includes('pac'))return '👾';if(n.includes('tetris'))return '🟦';if(n.includes('car')||n.includes('drift')||n.includes('drive'))return '🚗';if(n.includes('basket')||n.includes('foot')||n.includes('soccer'))return '⚽';if(n.includes('zombie')||n.includes('horror'))return '🧟';if(n.includes('space')||n.includes('star')||n.includes('galaxy'))return '🚀';if(n.includes('cookie')||n.includes('clicker'))return '🍪';if(n.includes('io'))return '🎮';return '🕹️';}
+function cookieAccept(){
+  localStorage.setItem('cookieConsent','yes');
+  document.getElementById('cookieBanner').classList.add('hidden');
+}
+function cookieDecline(){
+  localStorage.setItem('cookieConsent','no');
+  document.getElementById('cookieBanner').classList.add('hidden');
+}
+function initCookieBanner(){
+  var c=localStorage.getItem('cookieConsent');
+  if(c){document.getElementById('cookieBanner').classList.add('hidden');}
+}
+function saveState(){
+  if(!state.user)return;
+  var _sd={coins:state.coins,xp:state.xp,level:state.level,favorites:state.favorites,gamesPlayed:state.gamesPlayed||0,settings:state.settings};
+  localStorage.setItem("jspel_"+state.user,JSON.stringify(_sd));
+  localStorage.setItem("lastUser",state.user);
+  if(_sb){_sb.from("user_data").upsert({username:state.user,coins:_sd.coins,xp:_sd.xp,level:_sd.level,favorites:_sd.favorites,games_played:_sd.games_played,settings:_sd.settings},{onConflict:"username"}).then(function(){}).catch(function(){});}
+}
+function loadState(u){
+  var d=localStorage.getItem("jspel_"+u);
+  if(d){var p=JSON.parse(d);
+    state.coins=p.coins||0;state.xp=p.xp||0;state.level=p.level||1;
+    state.favorites=p.favorites||[];state.gamesPlayed=p.gamesPlayed||0;
+    state.settings=Object.assign({animations:true,sounds:true,darkMode:false,theme:"purple",lang:"en"},p.settings||{});
+  }
+}
+function toast(msg,dur){
+  var t=document.createElement("div");t.className="toast";t.textContent=msg;
+  document.getElementById("toastContainer").appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},dur||3000);
+}
+function updateHUD(){
+  document.getElementById("coinDisplay").textContent=state.coins;
+  var lvl=Math.floor(state.xp/100)+1;state.level=lvl;
+  document.getElementById("levelDisplay").textContent="Nivå "+lvl;
+  document.getElementById("xpFill").style.width=(state.xp%100)+"%";
+}
+var ACHIEVEMENTS=[
+  {id:'first_game',name:'Första spelet',desc:'Spela ditt första spel',icon:'🎮',check:function(){return(state.gamesPlayed||0)>=1;}},
+  {id:'games_10',name:'10 spel',desc:'Spela 10 spel',icon:'🕹️',check:function(){return(state.gamesPlayed||0)>=10;}},
+  {id:'games_100',name:'Spelentusiast',desc:'Spela 100 spel',icon:'🏅',check:function(){return(state.gamesPlayed||0)>=100;}},
+  {id:'coins_100',name:'Rik',desc:'Samla 100 mynt',icon:'💰',check:function(){return state.coins>=100;}},
+  {id:'coins_1000',name:'Rikaste',desc:'Samla 1000 mynt',icon:'🤑',check:function(){return state.coins>=1000;}},
+  {id:'favs_5',name:'Samlare',desc:'Ha 5 favoriter',icon:'⭐',check:function(){return state.favorites.length>=5;}},
+  {id:'level_5',name:'Nivå 5',desc:'Nå nivå 5',icon:'🌟',check:function(){return state.level>=5;}},
+  {id:'level_10',name:'Veteran',desc:'Nå nivå 10',icon:'💎',check:function(){return state.level>=10;}},
+  {id:'streak_7',name:'En vecka',desc:'7 dagars inloggningsstreak',icon:'🔥',check:function(){var d=JSON.parse(localStorage.getItem('daily_streak_'+(state.user||''))||'{"streak":0}');return(d.streak||0)>=7;}},
+];
+function checkAchievements(){
+  if(!state.user)return;
+  var earned=JSON.parse(localStorage.getItem('achievements_'+state.user)||'[]');
+  var newOnes=[];
+  ACHIEVEMENTS.forEach(function(a){
+    if(earned.indexOf(a.id)<0&&a.check()){
+      earned.push(a.id);newOnes.push(a);
+    }
+  });
+  if(newOnes.length){
+    localStorage.setItem('achievements_'+state.user,JSON.stringify(earned));
+    newOnes.forEach(function(a,i){
+      setTimeout(function(){toast(a.icon+' Achievement unlocked: '+a.name,'ok');},i*1200);
+    });
+  }
+}
+function renderAchievementsPanel(el){
+  if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:20px;text-align:center'>Logga in för att se achievements</p>";return;}var earned=JSON.parse(localStorage.getItem('achievements_'+state.user)||'[]');
+  var html='<div class="sideSection"><h4>🏅 Achievements ('+earned.length+'/'+ACHIEVEMENTS.length+')</h4>';
+  ACHIEVEMENTS.forEach(function(a){
+    var done=earned.indexOf(a.id)>=0;
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--line);margin-bottom:5px;opacity:'+(done?'1':'.45')+'">';
+    html+='<span style="font-size:22px">'+a.icon+'</span>';
+    html+='<div><div style="font-size:13px;font-weight:700;color:var(--w)">'+a.name+'</div><div style="font-size:11px;color:var(--d)">'+a.desc+'</div></div>';
+    if(done)html+='<span style="margin-left:auto;color:#3ba55c;font-size:16px">✓</span>';
+    html+='</div>';
+  });
+  html+='</div>';
+  el.innerHTML=html;
+}
+function addCoins(n,reason){
+  if(!state.user)return;
+  state.coins+=n;state.xp+=Math.floor(n/2);
+  saveState();updateHUD();
+  toast("+"+n+" mynt — "+reason);
+  checkAchievements();
+}
+function gameIsLocked(idx){return false;}
+function unlockGame(idx){
+  if(state.coins<10){toast("Inte tillräckligt med mynt!");return;}
+  state.coins-=10;
+  var ul=JSON.parse(localStorage.getItem("unlocked_"+state.user)||"[]");
+  ul.push(idx);localStorage.setItem("unlocked_"+state.user,JSON.stringify(ul));
+  saveState();updateHUD();toast("Spel upplåst!");renderGames();
+}
+function rateGame(idx,stars){
+  if(!state.user)return toast('Logga in för att betygsätta','error');
+  var key='rating_'+idx+'_'+state.user;
+  localStorage.setItem(key,stars);
+  var allKey='ratings_'+idx;
+  var all=JSON.parse(localStorage.getItem(allKey)||'{}');
+  all[state.user]=stars;
+  localStorage.setItem(allKey,JSON.stringify(all));
+  updateGameRatingDisplay(idx);
+  updateQuests('rate');toast('Betyg sparat: '+'★'.repeat(stars),'ok');
+}
+function getGameRating(idx){
+  var all=JSON.parse(localStorage.getItem('ratings_'+idx)||'{}');
+  var vals=Object.values(all).map(Number);
+  if(!vals.length)return{avg:0,count:0,myRating:0};
+  var avg=vals.reduce(function(a,b){return a+b;},0)/vals.length;
+  return{avg:Math.round(avg*10)/10,count:vals.length,myRating:parseInt(localStorage.getItem('rating_'+idx+'_'+(state.user||''))||'0')};
+}
+function updateGameRatingDisplay(idx){
+  var info=getGameRating(idx);
+  var el=document.getElementById('igpRatingStars');
+  if(!el)return;
+  var html='';
+  for(var s=1;s<=5;s++){
+    var filled=s<=(info.myRating||Math.round(info.avg));
+    html+='<span onclick="rateGame('+idx+','+s+')" style="cursor:pointer;font-size:20px;color:'+(filled?'#ffd700':'rgba(255,255,255,.3)')+'">&#9733;</span>';
+  }
+  if(info.count)html+='<span style="font-size:11px;color:var(--d);margin-left:6px">'+info.avg+' ('+info.count+')</span>';
+  el.innerHTML=html;
+}
+function openGame(i){var g=GAMES[i];if(!g)return;if(gameIsLocked(i)){toast('Lås upp spelet i butiken!','error');return;}var gName=g.name.replace(/^cl/i,'').trim();_currentGameIdx=i;var fb=document.getElementById('gameFavBtn');if(fb)fb.textContent=(state.favorites.indexOf(i)>=0)?'★':'☆';var si=document.getElementById('gameSubInfo');if(si)si.textContent=(g.cat||'');var gt=document.getElementById('gameTitle');if(gt)gt.textContent=gName;/* Hide grid, filterbar, search, hero */var filterBar=document.querySelector('.filterBar');var searchWrap=document.querySelector('.searchWrap');var gGrid=document.getElementById('gamesGrid');var lmw=document.getElementById('loadMoreWrap');var hero=document.querySelector('.hero');if(filterBar)filterBar.style.display='none';if(searchWrap)searchWrap.style.display='none';if(gGrid)gGrid.style.display='none';if(lmw)lmw.style.display='none';if(hero)hero.style.display='none';var panel=document.getElementById('inlineGamePanel');if(panel)panel.style.display='flex';/* Scroll to top so igp-bar is visible */window.scrollTo({top:0,behavior:'smooth'});/* Reload btn */var rb=document.getElementById('igpReloadBtn');if(rb)rb.onclick=function(){var f=document.getElementById('gameFrame');if(f)f.src=f.src;};/* Show inline loader */var ldr=document.getElementById('igpLoader');if(ldr)ldr.style.display='flex';var fr=document.getElementById('gameFrame');if(fr){fr.onload=function(){var l=document.getElementById('igpLoader');if(l)l.style.display='none';fr.onload=null;};fr.src='UGS-Files/'+g.f;}addCoins(1);var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');var today=new Date().toDateString();if(!recent.find(function(r){return r.f===g.f&&r.date===today;})){recent.unshift({f:g.f,name:g.name,date:today});if(recent.length>50)recent.pop();localStorage.setItem('recentGames',JSON.stringify(recent));state.gamesPlayed=(state.gamesPlayed||0)+1;}window._gameStartTime=Date.now();updateQuests();saveState();setTimeout(updateGameQuestWidget,200);setTimeout(function(){updateGameRatingDisplay(i);},100);checkAchievements();}
+var _currentGameIdx=-1;
+function toggleGameFav(){
+  if(_currentGameIdx<0)return;
+  var btn=document.getElementById('gameFavBtn');
+  var i=state.favorites.indexOf(_currentGameIdx);
+  if(i>=0){state.favorites.splice(i,1);if(btn)btn.textContent='☆';}
+  else{state.favorites.push(_currentGameIdx);if(btn)btn.textContent='★';addCoins(2,'Sparade favorit');updateQuests('fav');}
+  saveState();
+}
+function openUpdatesPage(){
+  closeSidebar();
+  showLoader('Update Logs');
+  setTimeout(function(){
+    var pg=document.getElementById('updatesPage');
+    if(!pg)return;
+    pg.classList.add('open');
+    var body=document.getElementById('updatesPageBody');
+    if(body)_renderChangelogHTML(body);
+    hideLoader();
+  },80);
+}
+function closeUpdatesPage(){
+  var pg=document.getElementById('updatesPage');
+  if(pg)pg.classList.remove('open');
+}
+function updateGameQuestWidget(){
+  var w=document.getElementById('gameQuestWidget');
+  if(!w)return;
+  var panel=document.getElementById('inlineGamePanel');var gameOpen=panel&&panel.style.display!==''&&panel.style.display!=='none';
+  if(!gameOpen||!state.user){w.classList.add('hidden');return;}
+  var g=_currentGameIdx>=0?GAMES[_currentGameIdx]:null;
+  var gName=g?g.name:'';
+  var quests=getQuests();
+  var active=quests.filter(function(q){return !q.claimed&&q.id.indexOf('time')>=0;});
+  if(!active.length){w.classList.add('hidden');return;}
+  var q=active[0];
+  var pct=Math.min(100,Math.round(q.prog/q.goal*100));
+  document.getElementById('gqwName').textContent=q.name;
+  document.getElementById('gqwProg').textContent=q.prog+' / '+q.goal+' min';
+  document.getElementById('gqwFill').style.width=pct+'%';
+  w.classList.remove('hidden');
+}
+
+function closeGame(){var fr=document.getElementById('gameFrame');if(fr)fr.src='about:blank';/* Hide inline panel, restore grid */var panel=document.getElementById('inlineGamePanel');if(panel)panel.style.display='none';var filterBar=document.querySelector('.filterBar');var searchWrap=document.querySelector('.searchWrap');var gGrid=document.getElementById('gamesGrid');var hero=document.querySelector('.hero');if(filterBar)filterBar.style.display='';if(searchWrap)searchWrap.style.display='';if(gGrid)gGrid.style.display='';if(hero)hero.style.display='';window.scrollTo({top:0,behavior:'smooth'});if(window._gameStartTime){var mins=Math.floor((Date.now()-window._gameStartTime)/60000);if(mins>0){var today=new Date().toDateString();var key='playtime_'+state.user+'_'+today;var old=parseInt(localStorage.getItem(key)||'0');localStorage.setItem(key,old+mins);updateQuests();}window._gameStartTime=null;}}
+function goFullscreen(){
+  var fr=document.getElementById("gameFrame");
+  if(fr.requestFullscreen)fr.requestFullscreen();
+  else if(fr.webkitRequestFullscreen)fr.webkitRequestFullscreen();
+  else if(fr.mozRequestFullScreen)fr.mozRequestFullScreen();
+}
+function toggleFav(idx){
+  if(!state.user){toast("Logga in för att spara favoriter");return;}
+  var i=state.favorites.indexOf(idx);
+  if(i>=0){state.favorites.splice(i,1);}else{state.favorites.push(idx);addCoins(2,"Sparade favorit");updateQuests("fav");}
+  saveState();
+  var card=document.querySelector(".gameCard[data-idx='"+idx+"']");
+  if(card){var fb=card.querySelector(".favBtn");if(fb){var isFav=state.favorites.indexOf(idx)>=0;fb.classList.toggle("active",isFav);fb.textContent=isFav?"★":"☆";}}
+  if(state.filterCat==="favoriter")renderGames();
+  if(document.getElementById("favOverlayBody").classList.contains("active"))renderFavsPanel();
+}
+function getFiltered(){
+  var g=GAMES.slice();
+  if(state.filterCat==="favoriter"){if(!state.user)return[];g=g.filter(function(_,i){return state.favorites.indexOf(i)>=0;});}
+  if(state.search){var s=state.search.toLowerCase();g=g.filter(function(x){return x.name.toLowerCase().indexOf(s)>=0||x.f.toLowerCase().indexOf(s)>=0;});}
+  return g;
+}
+function renderGames(){
+  var grid=document.getElementById("gamesGrid");
+  var filtered=getFiltered();
+  var slice=filtered.slice(0,(state.page+1)*state.perPage);
+  var lmw=document.getElementById("loadMoreWrap");
+  grid.innerHTML="";
+  if(!filtered.length){
+    var p=document.createElement("p");p.style.cssText="color:var(--d);padding:24px;grid-column:1/-1;text-align:center;";
+    p.textContent=(state.filterCat==="favoriter"&&!state.user)?"Logga in för att se favoriter":"Inga spel hittades";
+    grid.appendChild(p);lmw.style.display="none";return;
+  }
+  slice.forEach(function(game){
+    var realIdx=GAMES.indexOf(game);
+    var locked=realIdx>=200&&!!state.user&&gameIsLocked(realIdx);
+    var isFav=!!state.user&&state.favorites.indexOf(realIdx)>=0;
+    var card=document.createElement("div");
+    card.className="gameCard"+(locked?" locked":"");
+    card.dataset.idx=realIdx;
+    var thumb=document.createElement("div");thumb.className="gameThumb";
+    var bg=document.createElement("div");bg.className="gameThumbBg";bg.style.background=getGrad(game.name);
+    var letter=document.createElement("div");letter.className="gameThumbLetter";
+    letter.innerHTML='<span style="font-size:22px">'+getGameIcon(game.name)+'</span>';;
+    thumb.appendChild(bg);thumb.appendChild(letter);
+    var info=document.createElement("div");info.className="gameInfo";
+    var nm=document.createElement("div");nm.className="gameName";nm.textContent=game.name.replace(/^cl/i,"").trim();
+    var acts=document.createElement("div");acts.className="gameActions";
+    var fb=document.createElement("button");
+    fb.className="favBtn"+(isFav?" active":"");
+    fb.textContent=isFav?"★":"☆";
+    fb.dataset.idx=realIdx;
+    acts.appendChild(fb);
+    info.appendChild(nm);info.appendChild(acts);
+    card.appendChild(thumb);card.appendChild(info);
+    grid.appendChild(card);
+  });
+  lmw.style.display=slice.length<filtered.length?"flex":"none";
+  var btn=document.getElementById("loadMoreBtn");
+  if(btn)btn.textContent="Ladda fler ("+(filtered.length-slice.length)+" kvar)";
+}
+function openSidebar(){document.getElementById("sidebar").classList.add("open");document.getElementById("sideOverlay").classList.add("open");}
+function closeSidebar(){document.getElementById("sidebar").classList.remove("open");document.getElementById("sideOverlay").classList.remove("open");}
+function renderLeaderboardPanel(){
+  var el=document.getElementById('panel_leaderboard');if(!el)return;
+  var users=getAllUsers();
+  var ranked=users.map(function(u){
+    var d=JSON.parse(localStorage.getItem('jspel_'+u)||'{}');
+    return {user:u,coins:d.coins||0,xp:d.xp||0,level:d.level||1};
+  }).sort(function(a,b){return b.xp-a.xp;});
+  var html='<div class="sideSection"><h4>🏆 Topp spelare (XP)</h4>';
+  ranked.slice(0,15).forEach(function(r,i){
+    var medals=['🥇','🥈','🥉'];
+    var medal=medals[i]||'#'+(i+1);
+    var isMe=r.user===state.user;
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:'+(isMe?'rgba(123,44,255,.2)':'rgba(255,255,255,.03)')+';border:1px solid '+(isMe?'var(--p0)':'var(--line)')+';margin-bottom:4px">';
+    html+='<span style="font-size:16px;width:24px;text-align:center">'+medal+'</span>';
+    html+='<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--w);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.user+'</div>';
+    html+='<div style="font-size:10px;color:var(--d)">Nivå '+r.level+' · '+r.xp+' XP</div></div>';
+    html+='<span style="font-size:11px;color:var(--p1);font-weight:700">'+r.coins+' 🪙</span>';
+    html+='</div>';
+  });
+  html+='</div>';
+  el.innerHTML=html;
+}
+function switchSideTab(tab){
+  document.querySelectorAll(".sideNavBtn").forEach(function(b){b.classList.remove("active");});
+  var btn=document.querySelector("[data-tab='"+tab+"']");
+  if(btn)btn.classList.add("active");
+  document.querySelectorAll(".sidePanel").forEach(function(p){p.classList.remove("active");});
+  var panel=document.getElementById("panel_"+tab);
+  if(panel){panel.classList.add("active");
+    panel.style.animation="none";panel.offsetHeight;panel.style.animation="panelIn .25s ease";
+    function renderForslagPanel(){var el=document.getElementById('panel_forslag');if(!el)return;el.innerHTML='<div class="sideSection"><h4>'+T('sugTitle')+'</h4><div class="sugForm"><input type="text" id="sugGame" placeholder="'+T('sugPlaceholder1')+'" data-i18n-ph="sugPlaceholder1"><textarea id="sugText" placeholder="'+T('sugPlaceholder2')+'" data-i18n-ph="sugPlaceholder2"></textarea><button class="pill primary" onclick="submitSuggestion()" style="justify-content:center;margin-top:2px">'+T('sugBtn')+'</button></div></div>';}var renders={favoriter:renderFavsPanel,teman:renderThemePanel,quests:renderQuestsPanel,forslag:renderForslagPanel,butik:renderShopPanel,instaellningar:renderSettingsPanel,profil:renderProfilePanel,admin:renderAdminPanel,updates:renderUpdatesPanel,inventory:renderInventoryPanel,leaderboard:renderLeaderboardPanel,achievements:function(){renderAchievementsPanel(document.getElementById('panel_achievements'));}};
+    if(renders[tab])renders[tab]();
+  }
+}
+function renderFavsPanel(){
+  var el=document.getElementById("favOverlayBody");
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:14px;text-align:center'>Logga in för att se favoriter</p>";return;}
+  if(!state.favorites.length){el.innerHTML="<p style='color:var(--d);padding:14px;text-align:center'>Inga favoriter än<br><small>Klicka ☆ på ett spel</small></p>";return;}
+  el.innerHTML="";
+  var sec=document.createElement("div");sec.className="sideSection";
+  var h=document.createElement("h4");h.textContent="Dina favoriter ("+state.favorites.length+")";sec.appendChild(h);
+  state.favorites.forEach(function(idx){
+    var g=GAMES[idx];if(!g)return;
+    var item=document.createElement("div");item.className="favItem";item.dataset.idx=idx;
+    var nm=document.createElement("span");nm.className="favItemName";nm.textContent=g.name.replace(/^cl/i,"").trim();
+    item.appendChild(nm);sec.appendChild(item);
+  });
+  el.appendChild(sec);
+}
+function renderThemePanel(){
+  var el=document.getElementById("panel_teman");
+  var cur=state.settings.theme||"purple";
+  var themes=[
+    {id:"purple",name:T("colors_purple"),c1:"#7b2cff",c2:"#3a00b7"},
+    {id:"neon",name:T("colors_neon"),c1:"#00ffcc",c2:"#007a5e"},
+    {id:"gold",name:T("colors_gold"),c1:"#ffaa00",c2:"#a06800"},
+    {id:"red",name:T("colors_red"),c1:"#ff2d55",c2:"#8b0000"},
+    {id:"blue",name:T("colors_blue"),c1:"#0ea5e9",c2:"#1e40af"},
+    {id:"pink",name:T("colors_pink"),c1:"#ec4899",c2:"#9d174d"}
+  ];
+  el.innerHTML="";
+  var sec=document.createElement("div");sec.className="sideSection";
+  var h=document.createElement("h4");h.textContent=T("themeTitle");sec.appendChild(h);
+  var grid=document.createElement("div");grid.className="themeGrid";
+  themes.forEach(function(t){
+    var card=document.createElement("div");card.className="themeCard"+(t.id===cur?" active":"");
+    card.dataset.theme=t.id;
+    var dot=document.createElement("div");dot.className="themeColor";dot.style.background="linear-gradient(135deg,"+t.c1+","+t.c2+")";
+    var p=document.createElement("p");p.textContent=t.name;
+    card.appendChild(dot);card.appendChild(p);grid.appendChild(card);
+  });
+  sec.appendChild(grid);el.appendChild(sec);
+  grid.addEventListener("click",function(e){
+    var card=e.target.closest(".themeCard");if(!card)return;
+    applyTheme(card.dataset.theme);
+    grid.querySelectorAll(".themeCard").forEach(function(c){c.classList.remove("active");});
+    card.classList.add("active");
+  });
+}
+function renderUpdatesPanel(){
+  var el=document.getElementById('panel_updates');
+  if(!el)return;
+  _renderChangelogHTML(el);
+}
+function renderChangelogPanel(){
+  var el=document.getElementById('changelogOverlayBody');
+  if(!el)return;
+  _renderChangelogHTML(el);
+}
+function _renderChangelogHTML(el){
+  if(!el)return;
+  var logs=[
+    {v:"v2.6",d:"Mars 2026",tag:"new",title:"📢 Update Logs & Bugfixar",items:[
+      "Update Logs öppnar nu som en hel sida",
+      "Loading screen fixad — syntes inte pga z-index bugg",
+      "Quest-panelens kategori-emojis fixade",
+      "Minimum 1.4s visningstid på laddningsskärmen"
+    ]},
+    {v:"v2.5",d:"Feb 2026",tag:"new",title:"🎮 Spel & Discord i overlay",items:[
+      "Discord öppnar nu i ett inbyggt fönster istället för popup",
+      "Spel öppnar i ett snyggt fullscreen-overlay",
+      "Jakob AI och Browser i sidopanelen",
+      "Mörkt läge appliceras direkt utan omladdning"
+    ]},
+    {v:"v2.4",d:"Jan 2026",tag:"new",title:"👥 Profiler & Vänner",items:[
+      "Discord-liknande profilsida",
+      "Vännsystem — lägg till och ta bort vänner",
+      "Sök och visa andra spelares profiler",
+      "Profilavatar och statistik"
+    ]},
+    {v:"v2.3",d:"Dec 2025",tag:"update",title:"⏳ Laddningsskärmar",items:[
+      "Ny centrerad laddningsskärm med progress-bar",
+      "Roliga laddningsmeddelanden",
+      "Visas vid spel, browser och Discord"
+    ]},
+    {v:"v2.2",d:"Nov 2025",tag:"new",title:"🌐 Browser & Jakob AI",items:[
+      "Inbyggd browser i sidopanelen",
+      "Jakob AI-assistent i sidopanelen",
+      "Båda stödjer fullscreen-läge"
+    ]},
+    {v:"v2.1",d:"Okt 2025",tag:"update",title:"🌐 Sju Språk",items:[
+      "Engelska, Svenska, Spanska, Franska, Tyska, Ryska, Mandarin",
+      "Språkväljare i Inställningar",
+      "All text översatt"
+    ]},
+    {v:"v2.0",d:"Sep 2025",tag:"new",title:"💬 Live-funktioner",items:[
+      "Live-användarantal under titeln",
+      "Global chatt via Supabase",
+      "Persistenta konton (login/registrera)",
+      "XP- och nivåsystem"
+    ]},
+    {v:"v1.0",d:"Aug 2025",tag:"launch",title:"🚀 Lansering",items:[
+      "Jakob's Game Library lanserades!",
+      "1000+ spel tillgängliga",
+      "Favoritystem",
+      "Questsystem"
+    ]}
+  ];
+  var tagColors={new:"#7fffb3",update:"#7ec8ff",launch:"#ffdd57"};
+  var tagLabels={new:"NYTT",update:"UPDATE",launch:"LAUNCH"};
+  var h='<div class="updates-heading"><span>📢</span> Uppdateringar</div>';
+  h+='<div class="updates-sub">Senaste uppdateringar och ändringar på Jakobs Game Portal</div>';
+  logs.forEach(function(log){
+    var tc=tagColors[log.tag]||"var(--p1)";
+    var lbl=tagLabels[log.tag]||log.tag.toUpperCase();
+    h+='<div class="updates-card">';
+    h+='<div class="updates-card-header">';
+    h+='<span class="updates-ver">'+log.v+'</span>';
+    h+='<span class="updates-tag" style="background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'55">'+lbl+'</span>';
+    h+='<span class="updates-date">'+log.d+'</span>';
+    h+='</div>';
+    h+='<div class="updates-card-title">'+log.title+'</div>';
+    h+='<ul class="updates-list">';
+    log.items.forEach(function(item){
+      h+='<li><span class="ul-dot" style="background:'+tc+'"></span>'+item+'</li>';
+    });
+    h+='</ul></div>';
+  });
+  el.innerHTML=h;
+}
+function _getQuestDailyProg(){
+  if(!state.user)return{};
+  var today=new Date().toDateString();
+  return JSON.parse(localStorage.getItem('qdp_'+state.user+'_'+today)||'{}');
+}
+function _setQuestDailyProg(key,val){
+  if(!state.user)return;
+  var today=new Date().toDateString();
+  var k='qdp_'+state.user+'_'+today;
+  var d=JSON.parse(localStorage.getItem(k)||'{}');
+  d[key]=(d[key]||0)+val;
+  localStorage.setItem(k,JSON.stringify(d));
+}
+function getQuests(){
+  if(!state.user)return[];
+  var today=new Date().toDateString();
+  var savedKey='quests_'+state.user+'_'+today;
+  var saved=JSON.parse(localStorage.getItem(savedKey)||'{"claimed":[]}');
+  var claimed=saved.claimed||[];
+  var dp=_getQuestDailyProg();
+  /* Compute progress from stored data */
+  var playtime=parseInt(localStorage.getItem('playtime_'+state.user+'_'+today)||'0');
+  var recent=JSON.parse(localStorage.getItem('recentGames')||'[]');
+  var todayGames=recent.filter(function(r){return r.date===today;}).length;
+  var quests=[
+    /* Daily */
+    {id:'play_1',cat:'daily',name:'Spela ett spel',desc:'Öppna valfritt spel idag',goal:1,prog:Math.min(todayGames,1),reward:15},
+    {id:'play_3',cat:'daily',name:'Spela 3 spel',desc:'Öppna 3 olika spel idag',goal:3,prog:Math.min(todayGames,3),reward:30},
+    {id:'time_5',cat:'daily',name:'5 minuter spelande',desc:'Spela i 5 minuter totalt',goal:5,prog:Math.min(playtime,5),reward:20},
+    {id:'time_15',cat:'daily',name:'15 minuter spelande',desc:'Spela i 15 minuter totalt',goal:15,prog:Math.min(playtime,15),reward:50},
+    {id:'search_q',cat:'daily',name:'Sök ett spel',desc:'Använd sökfältet',goal:1,prog:Math.min(dp.searches||0,1),reward:5},
+    {id:'fav_q',cat:'daily',name:'Spara en favorit',desc:'Lägg till ett spel i favoriter',goal:1,prog:Math.min(dp.favs||0,1),reward:10},
+    /* Social */
+    {id:'chat_q',cat:'social',name:'Skicka ett meddelande',desc:'Skriv i chatten',goal:1,prog:Math.min(dp.chats||0,1),reward:10},
+    {id:'friend_q',cat:'social',name:'Lägg till en vän',desc:'Lägg till någon som vän',goal:1,prog:Math.min(dp.friends||0,1),reward:25},
+    {id:'rate_q',cat:'social',name:'Betygsätt ett spel',desc:'Ge ett spel ett betyg',goal:1,prog:Math.min(dp.ratings||0,1),reward:10},
+    /* Milestone */
+    {id:'ms_level2',cat:'milestone',name:'Nå nivå 2',desc:'Levla upp till nivå 2',goal:2,prog:Math.min(state.level,2),reward:100},
+    {id:'ms_level5',cat:'milestone',name:'Nå nivå 5',desc:'Levla upp till nivå 5',goal:5,prog:Math.min(state.level,5),reward:250},
+    {id:'ms_coins100',cat:'milestone',name:'Samla 100 mynt',desc:'Tjäna 100 mynt totalt',goal:100,prog:Math.min(state.coins,100),reward:0},
+    {id:'ms_favs5',cat:'milestone',name:'5 favoriter',desc:'Spara 5 favoriter',goal:5,prog:Math.min(state.favorites.length,5),reward:50},
+    {id:'ms_games10',cat:'milestone',name:'10 spel totalt',desc:'Spela 10 spel (alla dagar)',goal:10,prog:Math.min(state.gamesPlayed||0,10),reward:75},
+    {id:'ms_games50',cat:'milestone',name:'50 spel totalt',desc:'Spela 50 spel',goal:50,prog:Math.min(state.gamesPlayed||0,50),reward:200},
+  ];
+  quests.forEach(function(q){
+    q.done=q.prog>=q.goal;
+    q.claimed=claimed.indexOf(q.id)>=0;
+  });
+  return quests;
+}
+function renderQuestsPanel(){
+  var el=document.getElementById('panel_quests')||document.getElementById('questsOverlayBody');
+  if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:20px;text-align:center'>Logga in för att se quests</p>";return;}
+  var quests=getQuests();
+  var cats={daily:'📅 Dagliga Quests',social:'👥 Sociala',milestone:'🏆 Milstolpar'};
+  var catOrder=['daily','social','milestone'];
+  var h='<div style="padding:4px 0">';
+  // XP/coins summary
+  var totalClaimed=quests.filter(function(q){return q.claimed;}).length;
+  var totalDone=quests.filter(function(q){return q.done&&!q.claimed;}).length;
+  h+='<div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:14px;display:flex;gap:16px;align-items:center">';
+  h+='<div style="text-align:center"><div style="font-size:20px;font-weight:900;color:var(--p1)">'+totalClaimed+'</div><div style="font-size:10px;color:var(--d)">Hämtade</div></div>';
+  h+='<div style="text-align:center"><div style="font-size:20px;font-weight:900;color:#7fffb3">'+totalDone+'</div><div style="font-size:10px;color:var(--d)">Klara!</div></div>';
+  h+='<div style="text-align:center"><div style="font-size:20px;font-weight:900;color:var(--w)">'+quests.length+'</div><div style="font-size:10px;color:var(--d)">Totalt</div></div>';
+  h+='</div>';
+  catOrder.forEach(function(cat){
+    var cqs=quests.filter(function(q){return q.cat===cat;});
+    if(!cqs.length)return;
+    h+='<div style="font-size:11px;color:var(--d);margin:10px 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">'+cats[cat]+'</div>';
+    cqs.forEach(function(q){
+      var pct=Math.min(100,Math.round(q.prog/q.goal*100));
+      var isT=q.id.startsWith('time');
+      var progText=isT?(q.prog+'/'+q.goal+' min'):(q.prog+'/'+q.goal);
+      h+='<div style="background:var(--glass);border:1px solid '+(q.claimed?'var(--p2)':q.done?'#7fffb3':'var(--line)')+';border-radius:12px;padding:12px;margin-bottom:8px">';
+      h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">';
+      h+='<div><div style="font-size:13px;font-weight:700;color:'+(q.claimed?'var(--d)':q.done?'#7fffb3':'var(--w)')+'">'+q.name+'</div>';
+      h+='<div style="font-size:11px;color:var(--d);margin-top:2px">'+q.desc+'</div></div>';
+      h+='<div style="text-align:right;flex-shrink:0;margin-left:8px">';
+      h+='<div style="font-size:11px;color:var(--p1)">🪙 '+q.reward+'</div>';
+      if(q.claimed){h+='<div style="font-size:10px;color:var(--d);margin-top:2px">✅ Hämtad</div>';}
+      else if(q.done){h+='<button data-qid="'+q.id+'" class="claimQuestBtn" style="background:linear-gradient(135deg,var(--p0),var(--p2));color:#fff;border:none;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:700;margin-top:4px">🪙 Hämta!</button>';}
+      else{h+='<div style="font-size:10px;color:var(--d);margin-top:2px">'+progText+'</div>';}
+      h+='</div></div>';
+      h+='<div style="background:rgba(255,255,255,.1);border-radius:4px;height:5px;overflow:hidden">';
+      h+='<div style="background:'+(q.claimed||q.done?'linear-gradient(90deg,#7fffb3,var(--p1))':'linear-gradient(90deg,var(--p0),var(--p1))')+';height:100%;width:'+pct+'%;border-radius:4px;transition:width .4s"></div>';
+      h+='</div></div>';
+    });
+  });
+  h+='</div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.claimQuestBtn').forEach(function(btn){
+    btn.addEventListener('click',function(){claimQuest(this.dataset.qid);});
+  });
+}
+
+function updateQuests(type){
+  /* Track daily progress counters */
+  if(type&&state.user){
+    var typeMap={fav:'favs',search:'searches',chat:'chats',friend:'friends',rate:'ratings'};
+    if(typeMap[type])_setQuestDailyProg(typeMap[type],1);
+  }
+  var el=document.getElementById('panel_quests');
+  if(el&&el.classList.contains('active'))renderQuestsPanel();
+  updateGameQuestWidget();
+  /* Check achievements every time quests update */
+  if(typeof checkAchievements==='function')checkAchievements();
+}
+function renderShopPanel(){
+  var el=document.getElementById("butikOverlayBody");
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:14px;text-align:center'>Logga in för att använda butiken</p>";return;}
+  var shopCats=[
+   {cat:"Teman 🎨",items:[
+    {id:"theme_purple",n:"Lila (standard)",e:"💜",p:0},
+    {id:"theme_neon",n:"Neon Grön",e:"🟢",p:100},
+    {id:"theme_gold",n:"Guld",e:"✨",p:150},
+    {id:"theme_red",n:"Röd",e:"🔴",p:100},
+    {id:"theme_blue",n:"Isblå",e:"🔵",p:100},
+    {id:"theme_pink",n:"Rosa",e:"🌸",p:150},
+    {id:"theme_orange",n:"Orange",e:"🟠",p:150},
+    {id:"theme_retro",n:"Retro",e:"📼",p:200},
+    {id:"theme_galaxy",n:"Galaxy",e:"🌌",p:300}
+   ]},
+   {cat:"Profil Ramar 🖼️",items:[
+    {id:"frame_gold",n:"Guld Ram",e:"🟡",p:250,type:"frame"},
+    {id:"frame_neon",n:"Neon Ram",e:"🟢",p:200,type:"frame"},
+    {id:"frame_galaxy",n:"Galaxy Ram",e:"🌌",p:400,type:"frame"},
+    {id:"frame_fire",n:"Fire Ram",e:"🔥",p:350,type:"frame"},
+    {id:"frame_frost",n:"Frost Ram",e:"❄️",p:300,type:"frame"},
+    {id:"frame_crystal",n:"Crystal Ram",e:"💎",p:350,type:"frame"}
+   ]},
+   {cat:"Badges 🏷️",items:[
+    {id:"badge_pro",n:"Pro Badge",e:"⭐",p:300,type:"badge"},
+    {id:"badge_vip",n:"VIP Tag",e:"👑",p:500,type:"badge"},
+    {id:"badge_fire",n:"Fire Badge",e:"🔥",p:400,type:"badge"},
+    {id:"badge_crystal",n:"Crystal Tag",e:"💎",p:350,type:"badge"},
+    {id:"badge_shadow",n:"Shadow Tag",e:"🖤",p:450,type:"badge"},
+    {id:"badge_pulse",n:"Pulse Tag",e:"💟",p:400,type:"badge"}
+   ]},
+   {cat:"Namn Effekter ✍️",items:[
+    {id:"name_neon",n:"Neon Namn",e:"🟢",p:350,type:"nameeffect"},
+    {id:"name_gold",n:"Guld Namn",e:"✨",p:400,type:"nameeffect"},
+    {id:"name_galaxy",n:"Galaxy Namn",e:"🌌",p:500,type:"nameeffect"},
+    {id:"name_rainbow",n:"Rainbow Namn",e:"🌈",p:600,type:"nameeffect"}
+   ]},
+   {cat:"Profil Effekter 💫",items:[
+    {id:"effect_aura",n:"Aura Glow",e:"🔥",p:300,type:"effect"},
+    {id:"effect_wave",n:"Wave Overlay",e:"🌊",p:350,type:"effect"},
+    {id:"effect_vortex",n:"Vortex",e:"🌀",p:500,type:"effect"},
+    {id:"effect_pulse",n:"Pulse Effect",e:"💟",p:350,type:"effect"},
+    {id:"effect_shadow",n:"Shadow Card",e:"🖤",p:400,type:"effect"},
+    {id:"effect_galaxy",n:"Galaxy Card",e:"🌌",p:600,type:"effect"}
+   ]},
+   {cat:"Boosts ⚡",items:[
+    {id:"xp_boost",n:"XP Boost x2 (24h)",e:"⚡",p:50,type:"boost"},
+    {id:"coin_boost",n:"Coin Boost x2 (24h)",e:"🪙",p:60,type:"boost"}
+   ]}
+  ];
+  var items=[];
+  shopCats.forEach(function(c){c.items.forEach(function(i){items.push(i);});});
+  var owned=JSON.parse(localStorage.getItem("owned_"+state.user)||"[]");
+  el.innerHTML="";
+  var hdr=document.createElement("div");hdr.style.cssText="margin-bottom:14px;padding:12px 16px;background:var(--glass);border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:space-between";
+  hdr.innerHTML='<span style="font-size:14px;font-weight:700">Mynt-butik</span><span style="font-size:16px;font-weight:900;color:var(--p1)">🪙 '+state.coins+'</span>';
+  el.appendChild(hdr);
+  shopCats.forEach(function(cat){
+    var sec=document.createElement("div");sec.className="sideSection";
+    var h=document.createElement("h4");h.textContent=cat.cat;sec.appendChild(h);
+    var grid=document.createElement("div");grid.className="shopGrid";
+    cat.items.forEach(function(item){
+      var isOwned=owned.indexOf(item.id)>=0;
+      var si=document.createElement("div");si.className="shopItem"+(isOwned?" owned":"");
+      var em=document.createElement("div");em.className="shopEmoji";em.textContent=item.e;
+      var nm=document.createElement("div");nm.className="shopName";nm.textContent=item.n;
+      si.appendChild(em);si.appendChild(nm);
+      if(isOwned){var pr=document.createElement("div");pr.className="shopPrice";pr.style.color="#7fffb3";pr.textContent="Ägd ✓";si.appendChild(pr);}
+      else if(item.p===0){var pr2=document.createElement("div");pr2.className="shopPrice";pr2.style.color="var(--d)";pr2.textContent="Gratis";si.appendChild(pr2);}
+      else{var btn=document.createElement("button");btn.className="pill primary";btn.style.cssText="font-size:10px;padding:5px 8px;margin-top:4px";btn.textContent=item.p+" 🪙";btn.dataset.id=item.id;btn.dataset.p=item.p;btn.addEventListener("click",function(){buyItem(this.dataset.id,parseInt(this.dataset.p));});si.appendChild(btn);}
+      grid.appendChild(si);
+    });
+    sec.appendChild(grid);el.appendChild(sec);
+  });
+}
+function buyItem(id,price){
+  if(!state.user)return;
+  if(state.coins<price){toast("Inte tillräckligt med mynt!");return;}
+  state.coins-=price;
+  var owned=JSON.parse(localStorage.getItem("owned_"+state.user)||"[]");
+  if(owned.indexOf(id)<0)owned.push(id);
+  localStorage.setItem("owned_"+state.user,JSON.stringify(owned));
+  if(id.startsWith("theme_")){
+    var themeName=id.replace("theme_","");
+    applyTheme(themeName);
+    state.settings.theme=themeName;
+  }
+  if(id.startsWith('frame_')||id.startsWith('effect_')||id.startsWith('name_')||id.startsWith('badge_')){
+    state.settings['cosmetic_'+id]=true;
+  }
+  saveState();updateHUD();toast("Köpt! 🎉");renderShopPanel();updateQuests();
+}
+function renderSettingsPanel(){
+  var el=document.getElementById("panel_instaellningar");
+  var s=state.settings;
+  el.innerHTML="";
+  var sec=document.createElement("div");sec.className="sideSection";
+  var h=document.createElement("h4");h.textContent=T("sett_title");sec.appendChild(h);
+  [{key:"animations",lkey:"sett_animations"},{key:"sounds",lkey:"sett_sound"},{key:"darkMode",lkey:"sett_dark"}].forEach(function(row){
+    var r=document.createElement("div");r.className="settRow";
+    var lbl=document.createElement("span");lbl.className="settLabel";lbl.textContent=T(row.lkey);
+    var tog=document.createElement("button");tog.className="toggle"+(s[row.key]?" on":"");
+    tog.dataset.key=row.key;
+    tog.addEventListener("click",function(){
+      state.settings[this.dataset.key]=!state.settings[this.dataset.key];
+      this.classList.toggle("on",state.settings[this.dataset.key]);
+      if(this.dataset.key==="darkMode")applyDarkMode(state.settings.darkMode===true);
+      saveState();
+    });
+    r.appendChild(lbl);r.appendChild(tog);sec.appendChild(r);
+  });
+  // Language picker
+  var lr=document.createElement("div");lr.className="settRow";
+  var llbl=document.createElement("span");llbl.className="settLabel";llbl.textContent=T("sett_lang");
+  var lsel=document.createElement("select");
+  lsel.style.cssText="background:var(--glass);border:1px solid var(--line);border-radius:8px;color:var(--w);padding:4px 8px;font-size:12px;cursor:pointer;";
+  [["en","🇬🇧 English"],["sv","🇸🇪 Svenska"],["es","🇪🇸 Español"],["fr","🇫🇷 Français"],
+   ["de","🇩🇪 Deutsch"],["ru","🇷🇺 Русский"],["zh","🇨🇳 中文"]].forEach(function(opt){
+    var o=document.createElement("option");o.value=opt[0];o.textContent=opt[1];
+    if((s.lang||"en")===opt[0])o.selected=true;
+    lsel.appendChild(o);
+  });
+  lsel.addEventListener("change",function(){
+    state.settings.lang=this.value;
+    saveState();applyLang();renderSettingsPanel();
+  });
+  lr.appendChild(llbl);lr.appendChild(lsel);sec.appendChild(lr);
+  el.appendChild(sec);
+  if(state.user){
+    var sec2=document.createElement("div");sec2.className="sideSection";
+    var h2=document.createElement("h4");h2.textContent=T("sett_account");sec2.appendChild(h2);
+    var lb=document.createElement("button");lb.className="pill ghost";lb.style.cssText="width:100%;justify-content:center;margin-top:4px";
+    lb.textContent=T("sett_logout");lb.addEventListener("click",doLogout);
+    sec2.appendChild(lb);el.appendChild(sec2);
+  }
+}
+function renderProfilePanel(){
+  var el=document.getElementById('panel_profil');if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:20px;text-align:center'>Logga in för att se din profil</p>";return;}
+  var av=localStorage.getItem('avatar_'+state.user)||'';
+  var eq=getEquipped();
+  var frameClass=getFrameClass(eq.frame||null);
+  var nameClass=getNameClass(eq.nameeffect||null);
+  var badgesHTML=eq.badge?getBadgeHTML(eq.badge):'';
+  var coins=state.coins,favs=state.favorites.length;
+  var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+  var avatarInner=av
+    ?'<img src="'+av+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;display:block;" class="'+frameClass+'">'
+    :'<div style="width:80px;height:80px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#fff" class="'+frameClass+'">👤</div>';
+  el.innerHTML=''
+    +'<div style="background:linear-gradient(135deg,var(--p2),var(--p0));height:70px;border-radius:12px 12px 0 0;margin-bottom:48px;position:relative">'
+    +'<label for="picFileInput" style="position:absolute;bottom:-40px;left:50%;transform:translateX(-50%);cursor:pointer;display:block">'
+    +avatarInner
+    +'<div style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid var(--bg0);line-height:1">📷</div>'
+    +'</label></div>'
+    +'<input type="file" id="picFileInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this)">'
+    +'<div style="text-align:center;padding:0 12px 10px">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:2px" class="'+nameClass+'">'+state.user+'</div>'
+    +(badgesHTML?'<div style="display:flex;justify-content:center;flex-wrap:wrap;gap:4px;margin:4px 0">'+badgesHTML+'</div>':'')
+    +'<div style="font-size:12px;color:var(--d)">Nivå '+state.level+' · '+state.xp+' XP</div>'
+    +'<div style="font-size:10px;color:var(--d);margin-top:3px">Klicka på bilden för att ändra</div></div>'
+    +'<div style="display:flex;gap:8px;margin:4px 12px 10px"><div class="statBox"><span>'+coins+'</span><small>Mynt</small></div>'
+    +'<div class="statBox"><span>'+favs+'</span><small>Favoriter</small></div>'
+    +'<div class="statBox"><span>'+friends.length+'</span><small>Vänner</small></div></div>'
+    +'<div style="padding:0 12px 8px;display:flex;flex-direction:column;gap:6px">'
+    +'<button class="pill ghost" style="width:100%;justify-content:center" onclick="openInventoryWindow()">🎒 Inventory</button>'
+    +'<button class="pill ghost" style="width:100%;justify-content:center" onclick="doLogout()">🔒 Logga ut</button></div>';
+}
+
+
+function renderAdminPanel(){var el=document.getElementById('adminOverlayBody');if(!el)return;var users=getAllUsers();var totalMsgs=JSON.parse(localStorage.getItem('globalChat')||'[]').length;var bannedList=JSON.parse(localStorage.getItem('bannedUsers')||'[]');var announcements=JSON.parse(localStorage.getItem('admin_announcements')||'[]');el.innerHTML='<div style="padding:8px 0"><div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">📊 Statistik</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--p1)">'+users.length+'</div><div style="font-size:10px;color:var(--d)">Användare</div></div><div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--p1)">'+totalMsgs+'</div><div style="font-size:10px;color:var(--d)">Chattmeddelanden</div></div><div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--p1)">'+bannedList.length+'</div><div style="font-size:10px;color:var(--d)">Bannade</div></div><div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center"><div style="font-size:20px;font-weight:700;color:var(--p1)">'+GAMES.length+'</div><div style="font-size:10px;color:var(--d)">Spel</div></div></div></div><div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">📢 Broadcast</div><textarea id="adminBroadcastMsg" data-i18n-ph="chatPlaceholder" placeholder="Write a message..." style="width:100%;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:8px;padding:8px;color:var(--w);font-size:12px;font-family:inherit;resize:vertical;min-height:60px;box-sizing:border-box"></textarea><button onclick="adminBroadcast()" style="width:100%;margin-top:6px;background:var(--p0);color:#fff;border:none;border-radius:8px;padding:8px;cursor:pointer;font-size:12px;font-weight:600">📤 Skicka</button></div><div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">📌 Tillkännagivanden</div><div style="display:flex;gap:6px;margin-bottom:8px"><input id="adminAnnounceInput" placeholder="Nytt tillkännagivande..." style="flex:1;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:8px;padding:7px;color:var(--w);font-size:12px"><button onclick="addAnnouncement()" style="background:var(--p0);color:#fff;border:none;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:12px">+</button></div>'+(announcements.length?announcements.map(function(a,i){return'<div style="background:rgba(255,255,255,.05);border-radius:6px;padding:6px 8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--m)"><span>'+a+'</span><button onclick="removeAnnouncement('+i+')" style="background:rgba(255,50,50,.2);color:#ff6b6b;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:10px">✕</button></div>';}).join(''):'<div style="font-size:11px;color:var(--d);text-align:center;padding:8px">Inga tillkännagivanden</div>')+'</div><div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">💰 Ge mynt</div><div style="display:flex;gap:6px;margin-bottom:6px"><input id="adminCoinUser" placeholder="Användarnamn" style="flex:1;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:8px;padding:7px;color:var(--w);font-size:12px"><input id="adminCoinAmount" type="number" placeholder="Antal" min="1" max="9999" style="width:70px;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:8px;padding:7px;color:var(--w);font-size:12px"></div><button onclick="adminGiveCoins()" style="width:100%;background:linear-gradient(135deg,#ffaa00,#ff6b00);color:#000;border:none;border-radius:8px;padding:8px;cursor:pointer;font-size:12px;font-weight:600">🪙 Ge mynt</button></div><div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">👥 Användare ('+users.length+')</div><div style="max-height:200px;overflow-y:auto">'+users.map(function(u){var isBanned=bannedList.indexOf(u)>=0;var uData=JSON.parse(localStorage.getItem('jspel_'+u)||'{}');return'<div style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:8px;background:rgba(255,255,255,.03);margin-bottom:4px"><div style="width:28px;height:28px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;flex-shrink:0;color:#fff">'+u.charAt(0).toUpperCase()+'</div><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:var(--w);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+u+'</div><div style="font-size:10px;color:var(--d)">Mynt: '+(uData.coins||0)+' | Nivå: '+(uData.level||1)+'</div></div>'+(isBanned?'<button onclick="adminUnban(\'+u+\')" style="background:rgba(0,200,100,.2);color:#00c864;border:none;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:10px">Avbanna</button>':'<button onclick="adminKick(\'+u+\')" style="background:rgba(255,150,0,.15);color:#ff9600;border:none;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:10px;margin-right:4px">Kicka</button><button onclick="adminBan(\'+u+\')" style="background:rgba(255,50,50,.15);color:#ff4040;border:none;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:10px">Banna</button>')+'</div>';}).join('')+'</div></div>'+
+'<div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🛡️ Admin-rättigheter</div><div style="display:flex;gap:6px;margin-bottom:6px"><input id="adminRoleUser" placeholder="Användarnamn" style="flex:1;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:8px;padding:7px;color:var(--w);font-size:12px"><button onclick="var u=document.getElementById(\'adminRoleUser\').value.trim();if(u)adminToggleAdmin(u);" style="background:linear-gradient(135deg,var(--p0),var(--p2));color:#fff;border:none;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:12px;font-weight:600">Ge / Ta admin</button></div><div style="font-size:10px;color:var(--d)">Nuvarande admins: '+getAdminList().join(", ")+'</div></div>'+
+'<div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px"><div style="font-size:11px;color:var(--d);margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🗑️ Rensa chatt</div><button onclick="adminClearChat()" style="width:100%;background:rgba(255,50,50,.2);color:#ff6b6b;border:1px solid rgba(255,50,50,.3);border-radius:8px;padding:8px;cursor:pointer;font-size:12px;font-weight:600">🗑️ Rensa all chatt</button></div></div>';}
+function getAllUsers(){
+  var users=[];
+  for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k&&k.startsWith("acc_"))users.push(k.substring(4));}
+  return users;
+}
+function openLoginModal(reg){
+  var m=document.getElementById("loginModal");m.classList.add("open");
+  document.getElementById("loginTitle").textContent=reg?"Skapa konto":"Logga in";
+  document.getElementById("loginSubtitle").textContent=reg?"Registrera dig för att spara framsteg":"Logga in för att fortsätta";
+  document.getElementById("loginBtn2Text").textContent=reg?"Skapa konto":"Logga in";
+  document.getElementById("loginToggleText").textContent=reg?"Har du redan ett konto? Logga in":"Inget konto? Registrera dig";
+  m.dataset.mode=reg?"reg":"login";
+  document.getElementById("loginError").style.display="none";
+  document.getElementById("loginUser").value="";
+  document.getElementById("loginPass").value="";
+}
+function closeLoginModal(){document.getElementById("loginModal").classList.remove("open");}
+function toggleLoginMode(){var m=document.getElementById("loginModal");openLoginModal(m.dataset.mode!=="reg");}
+function doLogin(){
+  var u=document.getElementById("loginUser").value.trim();
+  var p=document.getElementById("loginPass").value;
+  var mode=document.getElementById("loginModal").dataset.mode;
+  var err=document.getElementById("loginError");
+  if(!u||!p){err.textContent="Fyll i alla fält";err.style.display="block";return;}
+
+  // Admin bypass – works on any device without a DB account
+  if(isUserAdmin(u)&&btoa(btoa(p))===ADMINPW){
+    loadState(u);state.user=u;state.isAdmin=true;
+    localStorage.setItem("lastUser",u);
+    closeLoginModal();finishLogin();
+    toast("Välkommen, "+u+"! (Admin)");
+    return;
+  }
+  if(_sb){
+    // --- Supabase-flöde (konton sparas online) ---
+    if(mode==="reg"){
+      _sb.from("accounts").select("username").eq("username",u).single().then(function(res){
+        if(res.data){err.textContent="Användarnamn taget";err.style.display="block";return;}
+        var initSettings={animations:true,sounds:true,darkMode:false,theme:"purple"};
+        _sb.from("accounts").insert({username:u,password_hash:btoa(p),is_admin:isUserAdmin(u),banned:false}).then(function(r){
+          if(r.error){err.textContent="Fel vid registrering: "+r.error.message;err.style.display="block";return;}
+          _sb.from("user_data").insert({username:u,coins:50,xp:0,level:1,favorites:[],games_played:0,settings:initSettings}).then(function(){});
+          localStorage.setItem("acc_"+u,btoa(p));
+          loadState(u);state.user=u;state.isAdmin=isUserAdmin(u);
+          localStorage.setItem("lastUser",u);
+          addCoins(0);
+          state.coins=50;updateHUD();saveState();
+          closeLoginModal();finishLogin();
+          toast("Välkommen, "+u+"! +50 mynt");
+        });
+      });
+    }else{
+      _sb.from("accounts").select("*").eq("username",u).single().then(function(res){
+        if(!res.data){err.textContent="Fel användarnamn eller lösenord";err.style.display="block";return;}
+        var acc=res.data;
+        if(acc.banned){err.textContent="Ditt konto är bannat";err.style.display="block";return;}
+        if(acc.password_hash!==btoa(p)){err.textContent="Fel användarnamn eller lösenord";err.style.display="block";return;}
+        _sb.from("user_data").select("*").eq("username",u).single().then(function(ud){
+          var d=ud.data||{};
+          state.user=u;
+          state.coins=d.coins||0;state.xp=d.xp||0;state.level=d.level||1;
+          state.favorites=d.favorites||[];state.gamesPlayed=d.games_played||0;
+          state.settings=Object.assign({animations:true,sounds:true,darkMode:false,theme:"purple"},d.settings||{});
+          state.isAdmin=acc.is_admin||isUserAdmin(u)||(btoa(btoa(p))===ADMINPW);
+          localStorage.setItem("acc_"+u,btoa(p));
+          localStorage.setItem("lastUser",u);
+          localStorage.setItem("jspel_"+u,JSON.stringify({coins:state.coins,xp:state.xp,level:state.level,favorites:state.favorites,gamesPlayed:state.gamesPlayed,settings:state.settings}));
+          closeLoginModal();finishLogin();
+          toast("Välkommen tillbaka, "+u+"!");
+          applyDarkMode(state.settings.darkMode===true);
+          if(state.settings.theme&&state.settings.theme!=="purple")applyTheme(state.settings.theme);
+        });
+      });
+    }
+  }else{
+    // --- Lokalt läge (localStorage) ---
+    if(mode==="reg"){
+      if(localStorage.getItem("acc_"+u)){err.textContent="Användarnamn taget";err.style.display="block";return;}
+      localStorage.setItem("acc_"+u,btoa(p));
+      loadState(u);state.user=u;state.isAdmin=isUserAdmin(u);
+      localStorage.setItem("lastUser",u);
+      addCoins(50,"Välkomstbonus!");
+      toast("Välkommen, "+u+"! +50 mynt");
+    }else{
+      if(localStorage.getItem("banned_"+u)){err.textContent="Ditt konto är bannat";err.style.display="block";return;}
+      var stored=localStorage.getItem("acc_"+u);
+      if(!stored||stored!==btoa(p)){err.textContent="Fel användarnamn eller lösenord";err.style.display="block";return;}
+      loadState(u);state.user=u;
+      state.isAdmin=isUserAdmin(u)||(btoa(btoa(p))===ADMINPW);
+      localStorage.setItem("lastUser",u);
+      toast("Välkommen tillbaka, "+u+"!");
+    }
+    closeLoginModal();
+    finishLogin();
+  }
+}
+function checkDailyStreak(){
+  if(!state.user)return;
+  var today=new Date().toDateString();
+  var key='daily_streak_'+state.user;
+  var data=JSON.parse(localStorage.getItem(key)||'{"streak":0,"last":""}');
+  var yesterday=new Date(Date.now()-86400000).toDateString();
+  if(data.last===today)return;
+  if(data.last===yesterday){
+    data.streak=(data.streak||0)+1;
+  }else{
+    data.streak=1;
+  }
+  data.last=today;
+  localStorage.setItem(key,JSON.stringify(data));
+  var bonus=Math.min(data.streak*5,50);
+  addCoins(bonus,'Daglig inloggning dag '+data.streak);
+  setTimeout(function(){
+    toast('🔥 Dag '+data.streak+' streak! +'+bonus+' mynt','ok');
+  },1500);
+  updateHUD();
+}
+function finishLogin(){
+  document.getElementById("loginBtn").style.display="none";
+  document.getElementById("userInfo").style.display="flex";
+  var avatar=localStorage.getItem("avatar_"+state.user)||"";
+  var ud=document.getElementById("userAvatarDisplay");
+  if(ud){
+    if(avatar){var img=document.createElement("img");img.src=avatar;img.style.cssText="width:100%;height:100%;object-fit:cover;border-radius:50%;";ud.innerHTML="";ud.appendChild(img);}
+    else{ud.textContent=state.user.substring(0,1).toUpperCase();}
+  }
+  document.getElementById("userNameDisplay").textContent=state.user;
+  if(state.isAdmin){var adminNav=document.getElementById("adminNav");if(adminNav)adminNav.style.display="flex";}
+  updateHUD();
+  renderGames();
+  saveState();
+  var broadcast=JSON.parse(localStorage.getItem("broadcast")||"null");
+  if(broadcast&&broadcast.msg){setTimeout(function(){toast("📢 "+broadcast.msg,5000);},500);}
+  ensureJoinDate();
+  checkDailyStreak();
+  showSiteAnnouncements();
+}
+function doLogout(){
+  saveState();
+  state.user=null;state.isAdmin=false;state.coins=0;state.xp=0;state.level=1;state.favorites=[];state.gamesPlayed=0;
+  state.settings={animations:true,sounds:true,darkMode:false,theme:"purple"};
+  localStorage.removeItem("lastUser");
+  document.getElementById("loginBtn").style.display="";
+  document.getElementById("userInfo").style.display="none";
+  var adminNav=document.getElementById("adminNav");if(adminNav)adminNav.style.display="none";
+  updateHUD();closeSidebar();renderGames();
+  toast("Loggad ut");
+}
+function openChat(){
+  var ov=document.getElementById("chatOverlay");if(!ov)return;
+  _resetWinPos(document.getElementById("chatWin"));
+  ov.style.display="flex";
+  setTimeout(function(){ov.classList.add("open");},10);
+  closeSidebar();loadChatMsgs();
+}
+function closeChat(){
+  var ov=document.getElementById("chatOverlay");
+  if(ov){ov.classList.remove("open");setTimeout(function(){ov.style.display="none";},200);}
+}
+function _renderChatMsgs(msgs){var el=document.getElementById('chatMessages');if(!el)return;el.innerHTML=msgs.map(function(m){var isMe=m.user===state.user;var av=localStorage.getItem('avatar_'+m.user)||'';var avatarHtml=av?'<img src="'+av+'" onclick="viewProfile(this.dataset.u)" data-u="'+m.user+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--p1);cursor:pointer">':'<div onclick="viewProfile(this.dataset.u)" data-u="'+m.user+'" style="width:28px;height:28px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;color:#fff;cursor:pointer">'+m.user.charAt(0).toUpperCase()+'</div>';var time=m.ts?new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';var isAdmin=m.isAdmin||m.user==='[ADMIN]';return'<div style="display:flex;align-items:flex-end;gap:6px;margin:6px 0;'+(isMe?'flex-direction:row-reverse':'')+'">'+ avatarHtml+'<div style="max-width:70%">'+(isMe||isAdmin?'':'<div style="font-size:10px;color:var(--d);margin-bottom:2px;padding-left:4px;cursor:pointer" onclick="viewProfile(\'' + m.user + '\')">'+m.user+'</div>')+'<div style="background:'+(isAdmin?'rgba(255,80,0,.25)':isMe?'var(--p0)':'var(--glass2)')+';color:var(--w);padding:7px 11px;border-radius:'+(isMe?'14px 14px 4px 14px':'14px 14px 14px 4px')+';font-size:13px;word-break:break-word">'+m.text+'</div><div style="font-size:10px;color:var(--d);margin-top:2px;text-align:'+(isMe?'right':'left')+'">'+time+'</div></div></div>';}).join('');el.scrollTop=el.scrollHeight;}
+function loadChatMsgs(){
+  if(_sb){
+    _sb.from("chat_messages").select("*").order("timestamp",{ascending:true}).limit(200)
+      .then(function(res){
+        if(res.error||!res.data)return;
+        var msgs=res.data.map(function(r){return{user:r.username,text:r.text,ts:r.timestamp,isAdmin:r.is_admin};});
+        _renderChatMsgs(msgs);
+      });
+    return;
+  }
+  var msgs=JSON.parse(localStorage.getItem('globalChat')||'[]');var el=document.getElementById('chatMessages');if(!el)return;el.innerHTML=msgs.map(function(m){var isMe=m.user===state.user;var av=localStorage.getItem('avatar_'+m.user)||'';var avatarHtml=av?'<img src="'+av+'" onclick="viewProfile(this.dataset.u)" data-u="'+m.user+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--p1);cursor:pointer">':'<div onclick="viewProfile(this.dataset.u)" data-u="'+m.user+'" style="width:28px;height:28px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;color:#fff;cursor:pointer">'+m.user.charAt(0).toUpperCase()+'</div>';var time=m.ts?new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';var isAdmin=m.isAdmin||m.user==='[ADMIN]';return'<div style="display:flex;align-items:flex-end;gap:6px;margin:6px 0;'+(isMe?'flex-direction:row-reverse':'')+'">'+ avatarHtml+'<div style="max-width:70%">'+(isMe||isAdmin?'':'<div style="font-size:10px;color:var(--d);margin-bottom:2px;padding-left:4px;cursor:pointer" onclick="viewProfile(\'' + m.user + '\')">'+m.user+'</div>')+'<div style="background:'+(isAdmin?'rgba(255,80,0,.25)':isMe?'var(--p0)':'var(--glass2)')+';color:var(--w);padding:7px 11px;border-radius:'+(isMe?'14px 14px 4px 14px':'14px 14px 14px 4px')+';font-size:13px;word-break:break-word">'+m.text+'</div><div style="font-size:10px;color:var(--d);margin-top:2px;text-align:'+(isMe?'right':'left')+'">'+time+'</div></div></div>';}).join('');el.scrollTop=el.scrollHeight;}
+function sendChat(){
+  if(!state.user){toast("Logga in för att chatta");return;}
+  var _cd=new Date().toDateString();var _ck='chatSent_'+state.user+'_'+_cd;
+  localStorage.setItem(_ck,(parseInt(localStorage.getItem(_ck)||'0')+1));
+  var inp=document.getElementById("chatInput");
+  var txt=inp.value.trim();if(!txt)return;
+  if(!state.isAdmin){
+    if(state.coins<1){toast("Du behöver minst 1 mynt för att chatta","error");return;}
+    state.coins-=1;updateHUD();saveState();
+  }
+  var msg={user:state.user,text:txt,ts:Date.now(),isAdmin:!!state.isAdmin};
+  inp.value="";updateQuests('chat');
+  if(_sb){
+    _sb.from("chat_messages").insert({username:state.user,text:txt,timestamp:msg.ts,is_admin:!!state.isAdmin})
+      .then(function(){loadChatMsgs();}).catch(function(){
+        // fallback
+        var msgs=JSON.parse(localStorage.getItem("globalChat")||"[]");
+        msgs.push(msg);localStorage.setItem("globalChat",JSON.stringify(msgs));loadChatMsgs();
+      });
+  }else{
+    var msgs=JSON.parse(localStorage.getItem("globalChat")||"[]");
+    msgs.push(msg);if(msgs.length>300)msgs.splice(0,msgs.length-300);
+    localStorage.setItem("globalChat",JSON.stringify(msgs));
+    loadChatMsgs();
+  }
+}
+function chatKey(e){if(e.key==="Enter")sendChat();}
+function submitSuggestion(){
+  var g=document.getElementById("sugGame").value.trim();
+  var t=document.getElementById("sugText").value.trim();
+  if(!g){toast("Fyll i spelnamn");return;}
+  var sugs=JSON.parse(localStorage.getItem("suggestions")||"[]");
+  sugs.push({game:g,text:t,ts:Date.now(),user:state.user||"Anonym"});
+  localStorage.setItem("suggestions",JSON.stringify(sugs));
+  document.getElementById("sugGame").value="";
+  document.getElementById("sugText").value="";
+  toast("Förslag skickat! Tack");
+  if(state.user)addCoins(5,"Skickade förslag");
+}
+
+function adminBroadcast(){var msg=document.getElementById('adminBroadcastMsg');if(!msg||!msg.value.trim())return toast('Skriv ett meddelande','error');var txt='📢 '+msg.value.trim();if(_sb){_sb.from('chat_messages').insert({username:'[ADMIN]',text:txt,timestamp:Date.now(),is_admin:true}).then(function(){loadChatMsgs();});}else{var msgs=JSON.parse(localStorage.getItem('globalChat')||'[]');msgs.push({user:'[ADMIN]',text:txt,ts:Date.now(),isAdmin:true});localStorage.setItem('globalChat',JSON.stringify(msgs));}msg.value='';toast('Broadcast skickat!','ok');if(document.getElementById('chatMessages'))loadChatMsgs();}
+function adminGiveCoins(){var uEl=document.getElementById('adminCoinUser');var aEl=document.getElementById('adminCoinAmount');if(!uEl||!aEl||!uEl.value.trim())return toast('Ange ett användarnamn','error');var amount=parseInt(aEl.value)||0;if(amount<=0)return toast('Ange ett giltigt antal mynt','error');if(uEl.value.trim()===state.user){state.coins+=amount;saveState();updateHUD();}else{var key='jspel_'+uEl.value.trim();var data=JSON.parse(localStorage.getItem(key)||'{}');data.coins=(data.coins||0)+amount;localStorage.setItem(key,JSON.stringify(data));}toast(amount+' mynt gavs till '+uEl.value.trim(),'ok');uEl.value='';aEl.value='';renderAdminPanel();}
+function adminKick(u){if(u===state.user)return toast('Kan inte kicka dig själv','error');toast(u+' kickades','ok');}
+function adminBan(u){if(u===state.user)return toast('Kan inte banna dig själv','error');var banned=JSON.parse(localStorage.getItem('bannedUsers')||'[]');if(banned.indexOf(u)<0){banned.push(u);localStorage.setItem('bannedUsers',JSON.stringify(banned));}toast(u+' bannades','ok');renderAdminPanel();}
+function adminUnban(u){var banned=JSON.parse(localStorage.getItem('bannedUsers')||'[]');var idx=banned.indexOf(u);if(idx>=0){banned.splice(idx,1);localStorage.setItem('bannedUsers',JSON.stringify(banned));}toast(u+' avbannades','ok');renderAdminPanel();}
+function adminClearChat(){if(!confirm('Rensa all chatt?'))return;localStorage.setItem('globalChat','[]');toast('Chatten rensades','ok');renderAdminPanel();if(document.getElementById('chatMessages'))loadChatMsgs();}
+function showSiteAnnouncements(){
+  var ann=JSON.parse(localStorage.getItem('admin_announcements')||'[]');
+  var dismissed=JSON.parse(localStorage.getItem('dismissed_announcements')||'[]');
+  var active=ann.filter(function(a){return dismissed.indexOf(a)<0;});
+  var banner=document.getElementById('siteAnnouncementBanner');
+  var textEl=document.getElementById('siteAnnouncementText');
+  if(active.length&&banner&&textEl){
+    textEl.textContent='📣 '+active[0];
+    banner.style.display='block';
+    var main=document.querySelector('.main');
+    if(main)main.style.paddingTop='44px';
+  }else if(banner){
+    banner.style.display='none';
+    var main=document.querySelector('.main');
+    if(main)main.style.paddingTop='';
+  }
+}
+function dismissSiteAnnouncement(){
+  var textEl=document.getElementById('siteAnnouncementText');
+  if(textEl){
+    var text=textEl.textContent.replace('📣 ','');
+    var dismissed=JSON.parse(localStorage.getItem('dismissed_announcements')||'[]');
+    dismissed.push(text);
+    localStorage.setItem('dismissed_announcements',JSON.stringify(dismissed));
+  }
+  var banner=document.getElementById('siteAnnouncementBanner');
+  if(banner)banner.style.display='none';
+  var main=document.querySelector('.main');
+  if(main)main.style.paddingTop='';
+}
+function addAnnouncement(){var inp=document.getElementById('adminAnnounceInput');if(!inp||!inp.value.trim())return toast('Skriv ett tillkännagivande','error');var ann=JSON.parse(localStorage.getItem('admin_announcements')||'[]');ann.unshift(inp.value.trim());if(ann.length>10)ann.pop();localStorage.setItem('admin_announcements',JSON.stringify(ann));inp.value='';localStorage.removeItem('dismissed_announcements');showSiteAnnouncements();toast('Tillkännagivande publicerat! 📣','ok');renderAdminPanel();}
+function removeAnnouncement(i){var ann=JSON.parse(localStorage.getItem('admin_announcements')||'[]');ann.splice(i,1);localStorage.setItem('admin_announcements',JSON.stringify(ann));toast('Borttaget','ok');showSiteAnnouncements();renderAdminPanel();}
+function handleAvatarUpload(input){if(!input.files||!input.files[0])return;var file=input.files[0];if(!file.type.startsWith('image/')){toast('Bara bildfiler är tillåtna','error');return;}if(file.size>5242880){toast('Bilden är för stor (max 5MB)','error');return;}var reader=new FileReader();reader.onload=function(e){var b64=e.target.result;localStorage.setItem('avatar_'+state.user,b64);/* Update topbar avatar */var ud=document.getElementById('userAvatarDisplay');if(ud){ud.innerHTML='';var img=document.createElement('img');img.src=b64;img.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:50%';ud.appendChild(img);}toast('Profilbild uppdaterad! 📸','ok');renderProfilePanel();};reader.readAsDataURL(file);}
+function claimQuest(id){var today=new Date().toDateString();var key='quests_'+state.user+'_'+today;var saved=JSON.parse(localStorage.getItem(key)||'{"claimed":[]}');if(!saved.claimed)saved.claimed=[];if(saved.claimed.indexOf(id)>=0)return toast('Quest redan hämtad!','error');var quests=getQuests();var q=quests.find(function(q){return q.id===id;});if(!q||!q.done)return toast('Quest ej klar!','error');saved.claimed.push(id);localStorage.setItem(key,JSON.stringify(saved));addCoins(q.reward);toast('+'+q.reward+' mynt! Quest klar!','ok');renderQuestsPanel();}
+function applyTheme(name){var themes={purple:{"--p0":"#7b2cff","--p1":"#b56cff","--p2":"#3a00b7","--bg0":"#050008","--bg1":"#0b0014","--bg2":"#120022"},neon:{"--p0":"#00ffcc","--p1":"#00e5ff","--p2":"#007a5e","--bg0":"#000a08","--bg1":"#00150f","--bg2":"#001a10"},gold:{"--p0":"#ffaa00","--p1":"#ffd166","--p2":"#a06800","--bg0":"#0a0600","--bg1":"#130900","--bg2":"#1a0d00"},red:{"--p0":"#ff2d55","--p1":"#ff6b6b","--p2":"#8b0000","--bg0":"#080003","--bg1":"#100008","--bg2":"#160005"},blue:{"--p0":"#2979ff","--p1":"#82b1ff","--p2":"#0040ca","--bg0":"#000510","--bg1":"#000a1f","--bg2":"#000e2b"},pink:{"--p0":"#e91e8c","--p1":"#ff80c8","--p2":"#9c006a","--bg0":"#08000a","--bg1":"#120010","--bg2":"#180015"}};var t=themes[name]||themes.purple;var r=document.documentElement;var isLight=state&&state.settings&&state.settings.darkMode===false;Object.keys(t).forEach(function(k){if(isLight&&(k==="--bg0"||k==="--bg1"||k==="--bg2"))return;r.style.setProperty(k,t[k]);});if(isLight)Object.keys(_LIGHT_BG).forEach(function(k){r.style.setProperty(k,_LIGHT_BG[k]);});var p0=t['--p0'];document.querySelectorAll('[class*="bg-orb"]').forEach(function(el,i){if(i===0)el.style.background='radial-gradient(circle,'+p0+'44,transparent 70%)';else if(i===1)el.style.background='radial-gradient(circle,'+p0+'33,transparent 70%)';else el.style.background='radial-gradient(circle,'+p0+'22,transparent 70%)';});document.querySelectorAll('.bg-grid').forEach(function(el){el.style.backgroundImage='linear-gradient('+p0+'18 1px,transparent 1px),linear-gradient(90deg,'+p0+'18 1px,transparent 1px)';});state.settings.theme=name;localStorage.setItem('jspel_'+state.user,JSON.stringify({coins:state.coins,xp:state.xp,level:state.level,favorites:state.favorites,gamesPlayed:state.gamesPlayed,settings:state.settings}));}
+
+/* ---- COSMETIC HELPERS ---- */
+var SHOP_ITEMS_DATA={
+  frame_gold:{e:"🟡",n:"Guld Ram",type:"frame"},frame_neon:{e:"🟢",n:"Neon Ram",type:"frame"},
+  frame_galaxy:{e:"🌌",n:"Galaxy Ram",type:"frame"},frame_fire:{e:"🔥",n:"Fire Ram",type:"frame"},
+  frame_frost:{e:"❄️",n:"Frost Ram",type:"frame"},frame_crystal:{e:"💎",n:"Crystal Ram",type:"frame"},
+  badge_pro:{e:"⭐",n:"Pro",type:"badge",c:"#ffd700"},badge_vip:{e:"👑",n:"VIP",type:"badge",c:"#9b59b6"},
+  badge_fire:{e:"🔥",n:"Fire",type:"badge",c:"#ff6b00"},badge_crystal:{e:"💎",n:"Crystal",type:"badge",c:"#7ec8ff"},
+  badge_shadow:{e:"🖤",n:"Shadow",type:"badge",c:"#8888aa"},badge_pulse:{e:"💟",n:"Pulse",type:"badge",c:"#e91e8c"},
+  name_neon:{e:"🟢",n:"Neon Namn",type:"nameeffect"},name_gold:{e:"✨",n:"Guld Namn",type:"nameeffect"},
+  name_galaxy:{e:"🌌",n:"Galaxy Namn",type:"nameeffect"},name_rainbow:{e:"🌈",n:"Rainbow Namn",type:"nameeffect"},
+  effect_aura:{e:"🔥",n:"Aura Glow",type:"effect"},effect_wave:{e:"🌊",n:"Wave Overlay",type:"effect"},
+  effect_vortex:{e:"🌀",n:"Vortex",type:"effect"},effect_pulse:{e:"💟",n:"Pulse Effect",type:"effect"},
+  effect_shadow:{e:"🖤",n:"Shadow Card",type:"effect"},effect_galaxy:{e:"🌌",n:"Galaxy Card",type:"effect"}
+};
+function getEquipped(){return state.settings.equipped||{};}
+function getFrameClass(id){if(!id)return "";return "frame-"+id.replace("frame_","");}
+function getNameClass(id){if(!id)return "";return "name-"+id.replace("name_","");}
+function getBannerStyle(id){
+  var m={effect_aura:"background:radial-gradient(ellipse at center,var(--p0)cc,var(--p2))",
+    effect_wave:"background:linear-gradient(135deg,var(--p2),var(--p0) 50%,var(--p1))",
+    effect_vortex:"background:conic-gradient(var(--p2),var(--p0),var(--p1),var(--p2))",
+    effect_pulse:"background:var(--p0);animation:pulse 2s ease infinite",
+    effect_shadow:"background:linear-gradient(135deg,#000 0%,var(--p2) 100%)",
+    effect_galaxy:"background:linear-gradient(135deg,#000508,#0a0020 60%,var(--p2)33)"};
+  return m[id]||"background:linear-gradient(135deg,var(--p2),var(--p0))";
+}
+function getBadgeHTML(id){
+  var b=SHOP_ITEMS_DATA[id];if(!b||b.type!=="badge")return "";
+  return '<span class="pc-badge" style="background:'+b.c+'22;color:'+b.c+';border:1px solid '+b.c+'55">'+b.e+" "+b.n+"</span>";
+}
+function equipItem(id,type){
+  if(!state.settings.equipped)state.settings.equipped={};
+  state.settings.equipped[type]=id;
+  saveState();toast("Equippat! ✨","ok");
+  renderInventoryPanel();updateHUD();
+}
+function unequipItem(type){
+  if(!state.settings.equipped)return;
+  state.settings.equipped[type]=null;
+  saveState();toast("Unequippat","ok");
+  renderInventoryPanel();updateHUD();
+}
+
+/* ---- INVENTORY PANEL ---- */
+function renderInventoryPanel(){
+  var el=document.getElementById("panel_inventory");if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:20px;text-align:center'>Logga in för att se ditt inventarium</p>";return;}
+  var owned=JSON.parse(localStorage.getItem("owned_"+state.user)||"[]");
+  var eq=getEquipped();
+  var cats={frame:"Profil Ramar \U0001F5BC\uFE0F",badge:"Badges \U0001F3F7\uFE0F",nameeffect:"Namn Effekter \u270D\uFE0F",effect:"Profil Effekter \U0001F4AB"};
+  var typeKeys={frame:"frame",badge:"badge",nameeffect:"nameeffect",effect:"effect"};
+  var h='<div style="padding:6px 0">';
+  h+='<div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px">';
+  h+='<div style="font-size:13px;font-weight:700;margin-bottom:2px;color:var(--w)">\U0001F392 Mitt Inventarium</div>';
+  h+='<div style="font-size:11px;color:var(--d)">'+owned.length+' saker ägda</div></div>';
+  var byType={frame:[],badge:[],nameeffect:[],effect:[]};
+  owned.forEach(function(id){var d=SHOP_ITEMS_DATA[id];if(d&&byType[d.type])byType[d.type].push(id);});
+  Object.keys(cats).forEach(function(type){
+    var items=byType[type];if(!items.length)return;
+    h+='<div class="inv-section-title">'+cats[type]+'</div>';
+    h+='<div class="inv-grid">';
+    items.forEach(function(id){
+      var d=SHOP_ITEMS_DATA[id];if(!d)return;
+      var isEq=eq[type]===id;
+      h+='<div class="inv-item'+(isEq?" equipped":"")+'">';
+      if(isEq)h+='<div class="inv-equipped-badge">EQUIPPAT</div>';
+      h+='<div class="inv-item-emoji">'+d.e+'</div>';
+      h+='<div class="inv-item-name">'+d.n+'</div>';
+      if(isEq){
+        h+='<button class="inv-equip-btn active" data-type="'+type+'" onclick="unequipItem(\''+type+'\')">Unequipa</button>';
+      }else{
+        h+='<button class="inv-equip-btn" data-type="'+type+'" data-id="'+id+'" onclick="equipItem(\''+id+'\',\''+type+'\')">Equippa</button>';
+      }
+      h+='</div>';
+    });
+    h+='</div>';
+  });
+  if(!owned.length)h+='<div style="text-align:center;padding:32px;color:var(--d)"><div style="font-size:40px;margin-bottom:8px">\U0001F4E6</div><div style="font-size:13px">Inget ännu!<br><small>Köp saker i Mynt-butiken</small></div></div>';
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+/* ---- DISCORD-STYLE PROFILE CARD ---- */
+function viewProfile(username){
+  if(!username)return;
+  var ov=document.getElementById("viewProfileOverlay");
+  var card=document.getElementById("profileCard");
+  if(!ov||!card)return;
+  ov.style.display="flex";
+  setTimeout(function(){ov.classList.add("open");},10);
+  _renderProfileCard(card,username);
+}
+function closeViewProfile(){
+  var ov=document.getElementById("viewProfileOverlay");
+  if(ov){ov.classList.remove("open");setTimeout(function(){ov.style.display="none";},200);}
+}
+function getProfileExt(username){
+  return JSON.parse(localStorage.getItem('profile_ext_'+username)||'{}');
+}
+function setProfileExt(data){
+  if(!state.user)return;
+  var existing=getProfileExt(state.user);
+  var merged=Object.assign(existing,data);
+  localStorage.setItem('profile_ext_'+state.user,JSON.stringify(merged));
+}
+function ensureJoinDate(){
+  if(!state.user)return;
+  var ext=getProfileExt(state.user);
+  if(!ext.joinDate){
+    setProfileExt({joinDate:new Date().toISOString().split('T')[0]});
+  }
+}
+function openProfileEditModal(){
+  var ext=getProfileExt(state.user);
+  var mo=document.getElementById('profileEditModal');
+  if(!mo)return;
+  document.getElementById('pemBio').value=ext.bio||'';
+  document.getElementById('pemStatus').value=ext.status||'';
+  document.getElementById('pemFeatured').value=ext.featuredItem||'';
+  mo.style.display='flex';
+}
+function closeProfileEditModal(){
+  var mo=document.getElementById('profileEditModal');
+  if(mo)mo.style.display='none';
+}
+function saveProfileEdit(){
+  var bio=document.getElementById('pemBio').value.trim().slice(0,150);
+  var status=document.getElementById('pemStatus').value.trim().slice(0,60);
+  var featured=document.getElementById('pemFeatured').value.trim();
+  setProfileExt({bio:bio,status:status,featuredItem:featured});
+  closeProfileEditModal();
+  toast('Profil uppdaterad! ✨','ok');
+}
+function handleBannerUpload(input){
+  if(!input.files||!input.files[0])return;
+  var file=input.files[0];
+  if(!file.type.startsWith('image/'))return toast('Bara bildfiler','error');
+  if(file.size>3145728)return toast('Max 3MB','error');
+  var reader=new FileReader();
+  reader.onload=function(e){
+    setProfileExt({customBanner:e.target.result});
+    toast('Banner uppdaterad! 🖼️','ok');
+  };
+  reader.readAsDataURL(file);
+}
+function pinCurrentGame(){
+  if(_currentGameIdx<0)return toast('Öppna ett spel först','error');
+  var g=GAMES[_currentGameIdx];if(!g)return;
+  var ext=getProfileExt(state.user);
+  var pins=ext.pinnedGames||[];
+  if(pins.find(function(p){return p.f===g.f;}))return toast('Redan pinnead','error');
+  pins.unshift({name:g.name,f:g.f,cat:g.cat||''});
+  if(pins.length>3)pins.pop();
+  setProfileExt({pinnedGames:pins});
+  toast('Spel pinneat på profilen! 📌','ok');
+}
+function unpinGame(f){
+  var ext=getProfileExt(state.user);
+  var pins=(ext.pinnedGames||[]).filter(function(p){return p.f!==f;});
+  setProfileExt({pinnedGames:pins});
+  if(document.getElementById('viewProfileOverlay').classList.contains('open'))viewProfile(state.user);
+}
+function _renderProfileCard(card,username){
+  var isSelf=(username===state.user);
+  var uData=JSON.parse(localStorage.getItem("jspel_"+username)||"{}");
+  var eq=(uData.settings&&uData.settings.equipped)||{};
+  var av=localStorage.getItem("avatar_"+username)||"";
+  var ext=getProfileExt(username);
+  var level=uData.level||1;
+  var coins=isSelf?state.coins:(uData.coins||0);
+  var favs=isSelf?state.favorites.length:(uData.favorites||[]).length;
+  var friends=JSON.parse(localStorage.getItem("friends_"+username)||"[]");
+  var myFriends=state.user?JSON.parse(localStorage.getItem("friends_"+state.user)||"[]"):[];
+  var isFriend=myFriends.indexOf(username)>=0;
+  /* Banner - custom upload takes priority */
+  var bannerStyle=ext.customBanner?'background:url('+ext.customBanner+') center/cover no-repeat;':getBannerStyle(eq.effect||null);
+  var frameClass=getFrameClass(eq.frame||null);
+  var avatarHTML=av
+    ?'<img src="'+av+'" class="pc-avatar '+frameClass+'" style="width:72px;height:72px">'
+    :'<div class="pc-avatar '+frameClass+'" style="background:var(--p0);width:72px;height:72px">'+username.charAt(0).toUpperCase()+'</div>';
+  var nameClass=getNameClass(eq.nameeffect||null);
+  var badgesHTML="";
+  if(eq.badge)badgesHTML+=getBadgeHTML(eq.badge);
+  /* Status */
+  var statusHTML=ext.status?'<div class="pc-status"><span class="pc-status-dot"></span>'+ext.status+'</div>':'';
+  /* Bio */
+  var bioHTML=ext.bio?'<div class="pc-bio">'+ext.bio+'</div>':'';
+  /* Join date */
+  var joinHTML=ext.joinDate?'<div style="font-size:10px;color:var(--d);margin-top:2px">📅 Gick med '+ext.joinDate+'</div>':'';
+  /* Showcase */
+  var showcaseItems=[];
+  if(eq.frame)showcaseItems.push('<div class="pc-showcase-item" title="Ram">'+getFrameClass(eq.frame).replace('frame-','')+'<br><small>Ram</small></div>');
+  if(eq.badge)showcaseItems.push('<div class="pc-showcase-item">'+getBadgeHTML(eq.badge)+'<br><small>Badge</small></div>');
+  if(eq.nameeffect)showcaseItems.push('<div class="pc-showcase-item">✨<br><small>Namn-effekt</small></div>');
+  if(eq.effect)showcaseItems.push('<div class="pc-showcase-item">🎨<br><small>Banner</small></div>');
+  var showcaseHTML=showcaseItems.length?'<div class="pc-divider"></div><div class="pc-showcase-title">🏆 Showcase</div><div class="pc-showcase">'+showcaseItems.join('')+'</div>':'';
+  /* Pinned games */
+  var pins=ext.pinnedGames||[];
+  var pinsHTML='';
+  if(pins.length){
+    pinsHTML='<div class="pc-divider"></div><div class="pc-showcase-title">📌 Pinnade spel</div><div class="pc-pins">';
+    pins.forEach(function(p){
+      pinsHTML+='<div class="pc-pin-item" onclick="closeViewProfile();openGameByFile(\''+p.f+'\')">🎮 '+p.name+'</div>';
+    });
+    pinsHTML+='</div>';
+  }
+  /* Actions */
+  var actionsHTML="";
+  if(!isSelf&&state.user){
+    if(isFriend){
+      actionsHTML='<button onclick="removeFriend(\'' + username + '\');closeViewProfile();toast(\'Vän borttagen\')" style="background:rgba(255,50,50,.2);color:#ff6b6b;border:1px solid rgba(255,50,50,.3);flex:1;padding:9px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer">✕ Ta bort vän</button>';
+    }else{
+      actionsHTML='<button onclick="addFriendDirect(\'' + username + '\');closeViewProfile();toast(\'+Vän tillagd ✨\',\'ok\')" style="background:var(--p0);color:#fff;flex:1;padding:9px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;border:none">+ Lägg till vän</button>';
+    }
+  }
+  if(isSelf){
+    actionsHTML='<button onclick="openProfileEditModal()" style="background:var(--p0);color:#fff;border:none;flex:1;padding:9px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer">✏️ Redigera</button>';
+    actionsHTML+='<label style="background:var(--glass);color:var(--w);border:1px solid var(--line);flex:1;padding:9px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center">🖼️ Banner<input type="file" accept="image/*" style="display:none" onchange="handleBannerUpload(this)"></label>';
+  }
+  actionsHTML+='<button onclick="closeViewProfile()" style="background:var(--glass);color:var(--d);border:1px solid var(--line);flex:1;padding:9px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer">Stäng</button>';
+  var avatarWrapHTML=isSelf
+    ?'<label for="pcFileInput" style="cursor:pointer;display:block;position:relative">'+avatarHTML+'<div style="position:absolute;bottom:2px;right:2px;width:22px;height:22px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:10px;border:2px solid var(--bg1)">📷</div></label>'
+    :avatarHTML;
+  card.innerHTML=
+    '<div class="pc-banner pc-banner-default" style="'+bannerStyle+'">'
+    +'<div class="pc-avatar-wrap">'+avatarWrapHTML+'</div>'
+    +'<button class="pc-close" onclick="closeViewProfile()">✕</button>'
+    +'</div>'
+    +'<div class="pc-body">'
+    +'<div class="pc-name-row"><span class="pc-username '+nameClass+'">'+username+'</span></div>'
+    +statusHTML
+    +(badgesHTML?'<div class="pc-badges">'+badgesHTML+'</div>':'')
+    +'<div class="pc-level">Nivå '+level+(isSelf?' · 🧠 '+state.xp+' XP':'')+'</div>'
+    +joinHTML
+    +bioHTML
+    +'<div class="pc-divider"></div>'
+    +'<div class="pc-stats">'
+    +'<div class="pc-stat"><span>'+coins+'</span><small>💰 Mynt</small></div>'
+    +'<div class="pc-stat"><span>'+favs+'</span><small>⭐ Favs</small></div>'
+    +'<div class="pc-stat"><span>'+friends.length+'</span><small>👥 Vänner</small></div>'
+    +'</div>'
+    +showcaseHTML
+    +pinsHTML
+    +'<div class="pc-divider"></div>'
+    +'<div class="pc-actions">'+actionsHTML+'</div>'
+    +(isSelf?'<input type="file" id="pcFileInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this);closeViewProfile();">':'')
+    +'</div>';
+  if(_sb&&!isSelf){
+    _sb.from("accounts").select("username,is_admin").eq("username",username).single().then(function(res){
+      if(res.data&&res.data.is_admin){
+        var nr=card.querySelector(".pc-name-row");
+        if(nr&&!nr.querySelector(".admin-badge")){
+          var ab=document.createElement("span");ab.className="pc-badge admin-badge";
+          ab.style.cssText="background:#ff6b0022;color:#ff6b00;border:1px solid #ff6b0055";
+          ab.textContent="🛡️ Admin";nr.appendChild(ab);
+        }
+      }
+    });
+  }
+}
+function openGameByFile(f){
+  var idx=GAMES.findIndex(function(g){return g.f===f;});
+  if(idx>=0)openGame(idx);
+}
+
+/* ---- UPDATED PROFILE PANEL (sidebar) ---- */
+
+
+/* ---- DRAGGABLE WINDOWS ---- */
+var _drag=null;
+function makeDraggable(win,handle){
+  handle.addEventListener('mousedown',function(e){
+    if(e.button!==0)return;
+    if(e.target.closest('button,input,select,a,iframe'))return;
+    var r=win.getBoundingClientRect();
+    /* Detach from flex centering → explicit fixed position */
+    win.style.position='fixed';
+    win.style.left=r.left+'px';
+    win.style.top=r.top+'px';
+    win.style.margin='0';
+    win.style.transform='none';
+    _drag={win:win,ox:e.clientX-r.left,oy:e.clientY-r.top};
+    document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  /* Touch support */
+  handle.addEventListener('touchstart',function(e){
+    if(e.target.closest('button,input,a'))return;
+    var t=e.touches[0];
+    var r=win.getBoundingClientRect();
+    win.style.position='fixed';win.style.left=r.left+'px';win.style.top=r.top+'px';
+    win.style.margin='0';win.style.transform='none';
+    _drag={win:win,ox:t.clientX-r.left,oy:t.clientY-r.top};
+    e.preventDefault();
+  },{passive:false});
+}
+document.addEventListener('mousemove',function(e){
+  if(!_drag)return;
+  var nx=Math.max(0,Math.min(window.innerWidth-120,e.clientX-_drag.ox));
+  var ny=Math.max(0,Math.min(window.innerHeight-44,e.clientY-_drag.oy));
+  _drag.win.style.left=nx+'px';_drag.win.style.top=ny+'px';
+});
+document.addEventListener('touchmove',function(e){
+  if(!_drag)return;
+  var t=e.touches[0];
+  var nx=Math.max(0,Math.min(window.innerWidth-120,t.clientX-_drag.ox));
+  var ny=Math.max(0,Math.min(window.innerHeight-44,t.clientY-_drag.oy));
+  _drag.win.style.left=nx+'px';_drag.win.style.top=ny+'px';
+  e.preventDefault();
+},{passive:false});
+document.addEventListener('mouseup',function(){if(_drag){document.body.style.userSelect='';_drag=null;}});
+document.addEventListener('touchend',function(){_drag=null;});
+function _resetWinPos(win){
+  win.style.position='';win.style.left='';win.style.top='';
+  win.style.margin='';win.style.transform='';
+}
+
+/* ---- INVENTORY APP WINDOW ---- */
+function openInventoryWindow(){
+  var ov=document.getElementById('inventoryOverlay');
+  if(!ov)return;
+  _resetWinPos(document.getElementById('inventoryWin'));
+  ov.style.display='flex';
+  setTimeout(function(){ov.classList.add('open');renderInventoryWin();},10);
+}
+function closeInventoryWindow(){
+  var ov=document.getElementById('inventoryOverlay');
+  if(ov){ov.classList.remove('open');setTimeout(function(){ov.style.display='none';},200);}
+}
+function openProfileWindow(){
+  if(!state.user){toast('Logga in först','error');return;}
+  var ov=document.getElementById('profileWinOverlay');if(!ov)return;
+  _resetWinPos(document.getElementById('profileWin'));
+  ov.style.display='flex';
+  setTimeout(function(){ov.classList.add('open');_renderProfileWinBody();},10);
+  closeSidebar();
+}
+function closeProfileWindow(){
+  var ov=document.getElementById('profileWinOverlay');
+  if(ov){ov.classList.remove('open');setTimeout(function(){ov.style.display='none';},200);}
+}
+function _renderProfileWinBody(){
+  var el=document.getElementById('profileWinBody');if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:20px;text-align:center'>Logga in</p>";return;}
+  var av=localStorage.getItem('avatar_'+state.user)||'';
+  var eq=getEquipped();
+  var ext=getProfileExt(state.user);
+  var frameClass=getFrameClass(eq.frame||null);
+  var nameClass=getNameClass(eq.nameeffect||null);
+  var badgesHTML=eq.badge?getBadgeHTML(eq.badge):'';
+  var bannerStyle=ext.customBanner?'background:url('+ext.customBanner+') center/cover no-repeat;':getBannerStyle(eq.effect||null);
+  var avatarInner=av
+    ?'<img src="'+av+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;display:block" class="'+frameClass+'">'
+    :'<div style="width:80px;height:80px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#fff" class="'+frameClass+'">👤</div>';
+  var friends=JSON.parse(localStorage.getItem('friends_'+state.user)||'[]');
+  el.innerHTML=
+    '<div style="'+bannerStyle+';height:80px;position:relative;margin-bottom:50px;flex-shrink:0">'
+    +'<label for="pwPicInput" style="position:absolute;bottom:-40px;left:50%;transform:translateX(-50%);cursor:pointer;display:block">'
+    +avatarInner
+    +'<div style="position:absolute;bottom:0;right:0;width:22px;height:22px;border-radius:50%;background:var(--p0);display:flex;align-items:center;justify-content:center;font-size:10px;border:2px solid var(--bg0)">📷</div>'
+    +'</label></div>'
+    +'<input type="file" id="pwPicInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(this);setTimeout(_renderProfileWinBody,300)">'
+    +'<div style="text-align:center;padding:0 16px 10px">'
+    +'<div style="font-size:18px;font-weight:900;margin-bottom:3px" class="'+nameClass+'">'+state.user+'</div>'
+    +(ext.status?'<div style="font-size:12px;color:var(--d);display:flex;align-items:center;justify-content:center;gap:5px;margin-bottom:4px"><span style="width:8px;height:8px;border-radius:50%;background:#3ba55c;display:inline-block"></span>'+ext.status+'</div>':'')
+    +(badgesHTML?'<div style="display:flex;justify-content:center;flex-wrap:wrap;gap:4px;margin:4px 0">'+badgesHTML+'</div>':'')
+    +'<div style="font-size:12px;color:var(--d);margin-bottom:4px">Nivå '+state.level+' · '+state.xp+' XP</div>'
+    +(ext.bio?'<div style="font-size:12px;color:var(--m);background:rgba(123,44,255,.08);border-radius:8px;padding:8px;margin:6px 0;border-left:2px solid var(--p0);text-align:left">'+ext.bio+'</div>':'')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;margin:0 12px 10px"><div class="statBox"><span>'+state.coins+'</span><small>Mynt</small></div>'
+    +'<div class="statBox"><span>'+state.favorites.length+'</span><small>Favoriter</small></div>'
+    +'<div class="statBox"><span>'+friends.length+'</span><small>Vänner</small></div></div>'
+    +'<div style="padding:0 12px 12px;display:flex;flex-direction:column;gap:6px">'
+    +'<button class="pill primary" style="width:100%;justify-content:center" onclick="closeProfileWindow();viewProfile(state.user)">👤 Visa profil</button>'
+    +'<button class="pill ghost" style="width:100%;justify-content:center" onclick="openProfileEditModal()">✏️ Redigera bio/status</button>'
+    +'<button class="pill ghost" style="width:100%;justify-content:center" onclick="closeProfileWindow();openInventoryWindow()">🎒 Inventory</button>'
+    +'<button class="pill ghost" style="width:100%;justify-content:center" onclick="closeProfileWindow();doLogout()">🔒 Logga ut</button>'
+    +'</div>';
+}
+function openThemesWindow(){
+  var ov=document.getElementById('themesWinOverlay');if(!ov)return;
+  _resetWinPos(document.getElementById('themesWin'));
+  ov.style.display='flex';
+  setTimeout(function(){
+    ov.classList.add('open');
+    /* Render themes into window body */
+    var body=document.getElementById('themesWinBody');
+    if(!body)return;
+    var cur=state.settings.theme||'purple';
+    var themes=[
+      {id:'purple',name:T('colors_purple'),c1:'#7b2cff',c2:'#3a00b7'},
+      {id:'neon',name:T('colors_neon'),c1:'#00ffcc',c2:'#007a5e'},
+      {id:'gold',name:T('colors_gold'),c1:'#ffaa00',c2:'#a06800'},
+      {id:'red',name:T('colors_red'),c1:'#ff2d55',c2:'#8b0000'},
+      {id:'blue',name:T('colors_blue'),c1:'#0ea5e9',c2:'#1e40af'},
+      {id:'pink',name:T('colors_pink'),c1:'#ec4899',c2:'#9d174d'}
+    ];
+    var grid='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px">';
+    themes.forEach(function(t){
+      var active=cur===t.id;
+      grid+='<div class="themeCard'+(active?' active':'')+'" data-tid="'+t.id+'" onclick="applyTheme(this.dataset.tid);this.closest(\'div\').querySelectorAll(\'.themeCard\').forEach(function(c){c.classList.remove(\'active\')});this.classList.add(\'active\')">'
+        +'<div class="themeColor" style="background:linear-gradient(135deg,'+t.c1+','+t.c2+')"></div>'
+        +'<p>'+t.name+'</p></div>';
+    });
+    grid+='</div>';
+    /* Dark mode toggle */
+    var dm=state.settings.darkMode!==false;
+    grid+='<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(255,255,255,.05);border-radius:12px;border:1px solid var(--line)">'
+      +'<span style="font-size:13px;font-weight:600;color:var(--m)">🌙 Mörkt läge</span>'
+      +'<label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">'
+      +'<input type="checkbox" id="twDarkToggle" '+(dm?'checked':'')+' onchange="applyDarkMode(this.checked);state.settings.darkMode=this.checked;saveState()" style="opacity:0;width:0;height:0">'
+      +'<span style="position:absolute;inset:0;background:'+(dm?'var(--p0)':'rgba(255,255,255,.2)')+';border-radius:24px;transition:.3s">'
+      +'<span style="position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:'+(dm?'23px':'3px')+';transition:.3s"></span>'
+      +'</span></label></div>';
+    body.innerHTML=grid;
+  },10);
+  closeSidebar();
+}
+function closeThemesWindow(){
+  var ov=document.getElementById('themesWinOverlay');
+  if(ov){ov.classList.remove('open');setTimeout(function(){ov.style.display='none';},200);}
+}
+function openSoundboardWindow(){
+  var ov=document.getElementById('soundboardOverlay');if(!ov)return;
+  _resetWinPos(document.getElementById('soundboardWin'));
+  var fr=document.getElementById('soundboardFrame');
+  if(fr)fr.src='https://jakobsigma.github.io/Sound-board/';
+  ov.style.display='flex';
+  setTimeout(function(){ov.classList.add('open');},10);
+  closeSidebar();
+}
+function closeSoundboardWindow(){
+  var ov=document.getElementById('soundboardOverlay');
+  if(ov){ov.classList.remove('open');setTimeout(function(){ov.style.display='none';},200);}
+}
+function renderInventoryWin(){
+  var el=document.getElementById('inventoryWinBody');if(!el)return;
+  if(!state.user){el.innerHTML="<p style='color:var(--d);padding:32px;text-align:center;font-size:13px'>Logga in för att se ditt inventory</p>";return;}
+  var owned=JSON.parse(localStorage.getItem('owned_'+state.user)||'[]');
+  var eq=getEquipped();
+  var cats={frame:'Profil Ramar 🖼️',badge:'Badges 🏷️',nameeffect:'Namn Effekter ✍️',effect:'Profil Effekter 💫'};
+  var h='<div style="padding:4px 0">';
+  h+='<div style="background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">';
+  h+='<span style="font-size:13px;font-weight:700">🎒 Mitt Inventory</span>';
+  h+='<span style="font-size:12px;color:var(--d)">'+owned.length+' saker</span></div>';
+  var byType={frame:[],badge:[],nameeffect:[],effect:[]};
+  owned.forEach(function(id){var d=SHOP_ITEMS_DATA[id];if(d&&byType[d.type])byType[d.type].push(id);});
+  var hasAny=false;
+  Object.keys(cats).forEach(function(type){
+    var items=byType[type];if(!items.length)return;
+    hasAny=true;
+    h+='<div style="font-size:10px;color:var(--d);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">'+cats[type]+'</div>';
+    h+='<div class="inv-grid">';
+    items.forEach(function(id){
+      var d=SHOP_ITEMS_DATA[id];if(!d)return;
+      var isEq=eq[type]===id;
+      h+='<div class="inv-item'+(isEq?' equipped':'')+'">';
+      if(isEq)h+='<div class="inv-equipped-badge">ON</div>';
+      h+='<div class="inv-item-emoji">'+d.e+'</div>';
+      h+='<div class="inv-item-name">'+d.n+'</div>';
+      if(isEq){
+        h+='<button class="inv-equip-btn active" onclick="unequipItem(this.dataset.t);renderInventoryWin()" data-t="'+type+'">Unequip</button>';
+      }else{
+        h+='<button class="inv-equip-btn" onclick="equipItem(this.dataset.i,this.dataset.t);renderInventoryWin()" data-i="'+id+'" data-t="'+type+'">Equip</button>';
+      }
+      h+='</div>';
+    });
+    h+='</div>';
+  });
+  if(!hasAny)h+='<div style="text-align:center;padding:40px 20px;color:var(--d)"><div style="font-size:48px;margin-bottom:12px">📦</div><div style="font-size:14px;font-weight:600;margin-bottom:4px">Inventory tomt</div><div style="font-size:12px">Köp saker i Mynt-butiken för att se dem här</div></div>';
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+document.addEventListener("DOMContentLoaded",function(){
+  // Show loader immediately on page load
+  showLoader("Jakob's Game Library");
+  document.querySelectorAll(".filterBtn").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      document.querySelectorAll(".filterBtn").forEach(function(b){b.classList.remove("active");});
+      this.classList.add("active");state.filterCat=this.dataset.filter;state.page=0;renderGames();
+    });
+  });
+  document.getElementById("searchInput").addEventListener("input",function(){
+    state.search=this.value;state.page=0;renderGames();
+    if(this.value.length===1)updateQuests("search");
+  });
+
+  /* Klickljud */
+  document.addEventListener("click",function(){
+    var _igp=document.getElementById("inlineGamePanel");if(_igp&&_igp.style.display!=""&&_igp.style.display!="none")return;
+    playClick();
+  },true);
+
+  /* Tangentbordsljud */
+  document.addEventListener("keydown",function(e){
+    var _igp=document.getElementById("inlineGamePanel");if(_igp&&_igp.style.display!=""&&_igp.style.display!="none")return;
+    if(e.key.length===1||e.key==="Backspace")playKey();
+  });
+
+  /* Cursor ring effekt */
+  var _cr=document.createElement("div");_cr.className="cursor-ring";document.body.appendChild(_cr);
+  document.addEventListener("mousemove",function(e){
+    _cr.style.left=e.clientX+"px";_cr.style.top=e.clientY+"px";_cr.classList.add("visible");
+  });
+  document.addEventListener("mousedown",function(){_cr.style.width="20px";_cr.style.height="20px";});
+  document.addEventListener("mouseup",function(){_cr.style.width="28px";_cr.style.height="28px";});
+  document.getElementById("loadMoreBtn").addEventListener("click",function(){state.page++;renderGames();});
+  /* Make all floating windows draggable */
+  var bWin=document.getElementById('browserWin');
+  var bBar=document.querySelector('.browserBar');
+  if(bWin&&bBar)makeDraggable(bWin,bBar);
+  var invWin=document.getElementById('inventoryWin');
+  var invBar=document.getElementById('inventoryWinBar');
+  if(invWin&&invBar)makeDraggable(invWin,invBar);
+  var pCard=document.getElementById('profileCard');
+  if(pCard)makeDraggable(pCard,pCard);
+  var chatWin=document.getElementById('chatWin');
+  var chatBar=document.getElementById('chatWinBar');
+  if(chatWin&&chatBar)makeDraggable(chatWin,chatBar);
+  var sbWin=document.getElementById('soundboardWin');
+  var sbBar=document.getElementById('soundboardWinBar');
+  if(sbWin&&sbBar)makeDraggable(sbWin,sbBar);
+  var profWin=document.getElementById('profileWin');
+  var profBar=document.getElementById('profileWinBar');
+  if(profWin&&profBar)makeDraggable(profWin,profBar);
+  var thWin=document.getElementById('themesWin');
+  var thBar=document.getElementById('themesWinBar');
+  if(thWin&&thBar)makeDraggable(thWin,thBar);
+  document.querySelectorAll('.panelWin').forEach(function(pw){
+    var ph=pw.querySelector('.panelHead');
+    if(ph)makeDraggable(pw,ph);
+  });
+  document.getElementById("gamesGrid").addEventListener("click",function(e){
+    var fb=e.target.closest(".favBtn");if(fb){e.stopPropagation();toggleFav(parseInt(fb.dataset.idx));return;}
+    var card=e.target.closest(".gameCard");if(!card)return;
+    var idx=parseInt(card.dataset.idx);
+    if(gameIsLocked(idx)){if(confirm("Lås upp för 10 mynt?"))unlockGame(idx);}else openGame(idx);
+  });
+  document.getElementById("favOverlayBody").addEventListener("click",function(e){
+    var item=e.target.closest(".favItem");if(item){openGame(parseInt(item.dataset.idx));closeSidebar();}
+  });
+  var lastUser=localStorage.getItem("lastUser");
+  if(lastUser&&localStorage.getItem("acc_"+lastUser)&&!localStorage.getItem("banned_"+lastUser)){
+    loadState(lastUser);state.user=lastUser;
+    var storedPw=localStorage.getItem("acc_"+lastUser);
+    state.isAdmin=isUserAdmin(lastUser)||(storedPw&&btoa(storedPw)===ADMINPW);
+    finishLogin();
+  }else{
+    renderGames();
+    switchSideTab("favoriter");
+    showSiteAnnouncements();
+  }
+  if(state.settings&&state.settings.theme&&state.settings.theme!=="purple")applyTheme(state.settings.theme);
+  applyDarkMode(state.settings&&state.settings.darkMode===true);
+  setInterval(function(){
+    if(document.getElementById("chatOverlay").classList.contains("open"))loadChatMsgs();
+  },3000);
+
+  // ---- LIVE PRESENCE COUNTER ----
+  var _presenceCh=null;
+  function startPresence(){
+    if(!_sb)return;
+    var uid=state.user||('guest_'+Math.random().toString(36).slice(2,8));
+    _presenceCh=_sb.channel('jakobspel-online',{config:{presence:{key:uid}}});
+    _presenceCh.on('presence',{event:'sync'},function(){
+      var n=Object.keys(_presenceCh.presenceState()).length;
+      var el=document.getElementById('onlineCount');
+      if(el)el.textContent=n+' '+(T('online')||'online');
+    }).subscribe(function(status){
+      if(status==='SUBSCRIBED')_presenceCh.track({t:Date.now()});
+    });
+  }
+  startPresence();
+  applyLang();
+  setTimeout(hideLoader, 600);
+  initCookieBanner();
+});
+
+
+// =================== i18n TRANSLATIONS ===================
+var LANG={
+en:{heroTitle:"Jakob's Game Library",pill_games:"🎮 1,946 games",pill_coins:"🏆 Collect coins",
+  pill_favs:"⭐ Save favorites",pill_quests:"📋 Complete quests",allGames:"All games",
+  favBtnLabel:"⭐ Favorites",searchPlaceholder:"Search among 1 946 games...",
+  back:"← Back",fullscreen:"⛶ Fullscreen",chatTitle:"💬 Chat",
+  chatPlaceholder:"Write a message...",sendBtn:"Send",
+  nav_favs:"Favorites",nav_profile:"Profile",nav_themes:"Themes",nav_suggest:"Suggest",
+  nav_settings:"Settings",nav_chat:"Chat",nav_admin:"Admin",
+  sett_title:"Settings",sett_animations:"Animations",sett_sound:"Sound",
+  sett_dark:"Dark mode",sett_lang:"Language",sett_account:"Account",sett_logout:"Log out",
+  themeTitle:"Choose theme",sugTitle:"Suggest a game",
+  sugPlaceholder1:"Game name...",sugPlaceholder2:"Describe the game...",sugBtn:"Send suggestion",
+  stat_coins:"Coins",stat_favs:"Favorites",stat_played:"Games",stat_level:"Level",
+  loginTitle:"Log in",regTitle:"Register",userLabel:"Username",passLabel:"Password",
+  userPlaceholder:"your username...",passPlaceholder:"your password...",
+  loginBtn:"Log in",regBtn:"Register",
+  switchToReg:"No account? Register",switchToLogin:"Have an account? Log in",
+  noFavs:"No favorites yet\nClick ☆ on a game",notLoggedFavs:"Log in to see favorites",
+  colors_purple:"Purple",colors_neon:"Neon",colors_gold:"Gold",
+  colors_red:"Red",colors_blue:"Blue",colors_pink:"Pink",online:"online now"},
+
+sv:{heroTitle:"Jakobs Spelbibliotek",pill_games:"🎮 1 946 spel",pill_coins:"🏆 Samla mynt",
+  pill_favs:"⭐ Spara favoriter",pill_quests:"📋 Slutför quests",allGames:"Alla spel",
+  favBtnLabel:"⭐ Favoriter",searchPlaceholder:"Sök bland 1 946 spel...",
+  back:"← Tillbaka",fullscreen:"⛶ Fullskärm",chatTitle:"💬 Chatt",
+  chatPlaceholder:"Skriv ett meddelande...",sendBtn:"Skicka",
+  nav_favs:"Favoriter",nav_profile:"Profil",nav_themes:"Teman",nav_suggest:"Förslag",
+  nav_settings:"Inställningar",nav_chat:"Chatt",nav_admin:"Admin",
+  sett_title:"Inställningar",sett_animations:"Animationer",sett_sound:"Ljud",
+  sett_dark:"Mörkt läge",sett_lang:"Språk",sett_account:"Konto",sett_logout:"Logga ut",
+  themeTitle:"Välj tema",sugTitle:"Föreslå ett spel",
+  sugPlaceholder1:"Spelnamn...",sugPlaceholder2:"Beskriv spelet...",sugBtn:"Skicka förslag",
+  stat_coins:"Mynt",stat_favs:"Favoriter",stat_played:"Spel",stat_level:"Nivå",
+  loginTitle:"Logga in",regTitle:"Registrera",userLabel:"Användarnamn",passLabel:"Lösenord",
+  userPlaceholder:"ditt användarnamn...",passPlaceholder:"ditt lösenord...",
+  loginBtn:"Logga in",regBtn:"Registrera",
+  switchToReg:"Inget konto? Registrera",switchToLogin:"Har konto? Logga in",
+  noFavs:"Inga favoriter än\nKlicka ☆ på ett spel",notLoggedFavs:"Logga in för att se favoriter",
+  colors_purple:"Lila",colors_neon:"Neon",colors_gold:"Guld",
+  colors_red:"Röd",colors_blue:"Blå",colors_pink:"Rosa",online:"online nu"},
+
+es:{heroTitle:"Biblioteca de Juegos de Jakob",pill_games:"🎮 1.946 juegos",pill_coins:"🏆 Coleccionar monedas",
+  pill_favs:"⭐ Guardar favoritos",pill_quests:"📋 Completar misiones",allGames:"Todos los juegos",
+  favBtnLabel:"⭐ Favoritos",searchPlaceholder:"Buscar entre 1.946 juegos...",
+  back:"← Volver",fullscreen:"⛶ Pantalla completa",chatTitle:"💬 Chat",
+  chatPlaceholder:"Escribe un mensaje...",sendBtn:"Enviar",
+  nav_favs:"Favoritos",nav_profile:"Perfil",nav_themes:"Temas",nav_suggest:"Sugerir",
+  nav_settings:"Ajustes",nav_chat:"Chat",nav_admin:"Admin",
+  sett_title:"Ajustes",sett_animations:"Animaciones",sett_sound:"Sonido",
+  sett_dark:"Modo oscuro",sett_lang:"Idioma",sett_account:"Cuenta",sett_logout:"Cerrar sesión",
+  themeTitle:"Elegir tema",sugTitle:"Sugerir un juego",
+  sugPlaceholder1:"Nombre del juego...",sugPlaceholder2:"Describe el juego...",sugBtn:"Enviar sugerencia",
+  stat_coins:"Monedas",stat_favs:"Favoritos",stat_played:"Juegos",stat_level:"Nivel",
+  loginTitle:"Iniciar sesión",regTitle:"Registrarse",userLabel:"Usuario",passLabel:"Contraseña",
+  userPlaceholder:"tu usuario...",passPlaceholder:"tu contraseña...",
+  loginBtn:"Entrar",regBtn:"Registrarse",
+  switchToReg:"¿Sin cuenta? Regístrate",switchToLogin:"¿Ya tienes cuenta? Entra",
+  noFavs:"Sin favoritos aún\nHaz clic en ☆ de un juego",notLoggedFavs:"Inicia sesión para ver favoritos",
+  colors_purple:"Morado",colors_neon:"Neón",colors_gold:"Dorado",
+  colors_red:"Rojo",colors_blue:"Azul",colors_pink:"Rosa",online:"en línea"},
+
+fr:{heroTitle:"Bibliothèque de Jeux de Jakob",pill_games:"🎮 1 946 jeux",pill_coins:"🏆 Collecter des pièces",
+  pill_favs:"⭐ Sauvegarder les favoris",pill_quests:"📋 Compléter des quêtes",allGames:"Tous les jeux",
+  favBtnLabel:"⭐ Favoris",searchPlaceholder:"Rechercher parmi 1 946 jeux...",
+  back:"← Retour",fullscreen:"⛶ Plein écran",chatTitle:"💬 Chat",
+  chatPlaceholder:"Écrire un message...",sendBtn:"Envoyer",
+  nav_favs:"Favoris",nav_profile:"Profil",nav_themes:"Thèmes",nav_suggest:"Suggérer",
+  nav_settings:"Paramètres",nav_chat:"Chat",nav_admin:"Admin",
+  sett_title:"Paramètres",sett_animations:"Animations",sett_sound:"Son",
+  sett_dark:"Mode sombre",sett_lang:"Langue",sett_account:"Compte",sett_logout:"Déconnexion",
+  themeTitle:"Choisir un thème",sugTitle:"Suggérer un jeu",
+  sugPlaceholder1:"Nom du jeu...",sugPlaceholder2:"Décrivez le jeu...",sugBtn:"Envoyer la suggestion",
+  stat_coins:"Pièces",stat_favs:"Favoris",stat_played:"Jeux",stat_level:"Niveau",
+  loginTitle:"Connexion",regTitle:"S'inscrire",userLabel:"Nom d'utilisateur",passLabel:"Mot de passe",
+  userPlaceholder:"votre nom d'utilisateur...",passPlaceholder:"votre mot de passe...",
+  loginBtn:"Se connecter",regBtn:"S'inscrire",
+  switchToReg:"Pas de compte ? S'inscrire",switchToLogin:"Déjà un compte ? Se connecter",
+  noFavs:"Pas encore de favoris\nCliquez ☆ sur un jeu",notLoggedFavs:"Connectez-vous pour voir les favoris",
+  colors_purple:"Violet",colors_neon:"Néon",colors_gold:"Or",
+  colors_red:"Rouge",colors_blue:"Bleu",colors_pink:"Rose",online:"en ligne"},
+
+de:{heroTitle:"Jakobs Spielbibliothek",pill_games:"🎮 1 946 Spiele",pill_coins:"🏆 Münzen sammeln",
+  pill_favs:"⭐ Favoriten speichern",pill_quests:"📋 Quests abschließen",allGames:"Alle Spiele",
+  favBtnLabel:"⭐ Favoriten",searchPlaceholder:"Unter 1 946 Spielen suchen...",
+  back:"← Zurück",fullscreen:"⛶ Vollbild",chatTitle:"💬 Chat",
+  chatPlaceholder:"Nachricht schreiben...",sendBtn:"Senden",
+  nav_favs:"Favoriten",nav_profile:"Profil",nav_themes:"Themen",nav_suggest:"Vorschlag",
+  nav_settings:"Einstellungen",nav_chat:"Chat",nav_admin:"Admin",
+  sett_title:"Einstellungen",sett_animations:"Animationen",sett_sound:"Ton",
+  sett_dark:"Dunkelmodus",sett_lang:"Sprache",sett_account:"Konto",sett_logout:"Abmelden",
+  themeTitle:"Thema wählen",sugTitle:"Spiel vorschlagen",
+  sugPlaceholder1:"Spielname...",sugPlaceholder2:"Spiel beschreiben...",sugBtn:"Vorschlag senden",
+  stat_coins:"Münzen",stat_favs:"Favoriten",stat_played:"Spiele",stat_level:"Level",
+  loginTitle:"Anmelden",regTitle:"Registrieren",userLabel:"Benutzername",passLabel:"Passwort",
+  userPlaceholder:"dein Benutzername...",passPlaceholder:"dein Passwort...",
+  loginBtn:"Anmelden",regBtn:"Registrieren",
+  switchToReg:"Kein Konto? Registrieren",switchToLogin:"Konto vorhanden? Anmelden",
+  noFavs:"Noch keine Favoriten\nKlicken Sie ☆ bei einem Spiel",notLoggedFavs:"Anmelden um Favoriten zu sehen",
+  colors_purple:"Lila",colors_neon:"Neon",colors_gold:"Gold",
+  colors_red:"Rot",colors_blue:"Blau",colors_pink:"Pink",online:"online"},
+
+ru:{heroTitle:"Игровая Библиотека Якоба",pill_games:"🎮 1 946 игр",pill_coins:"🏆 Собирать монеты",
+  pill_favs:"⭐ Сохранять избранное",pill_quests:"📋 Выполнять задания",allGames:"Все игры",
+  favBtnLabel:"⭐ Избранное",searchPlaceholder:"Поиск среди 1 946 игр...",
+  back:"← Назад",fullscreen:"⛶ Полный экран",chatTitle:"💬 Чат",
+  chatPlaceholder:"Написать сообщение...",sendBtn:"Отправить",
+  nav_favs:"Избранное",nav_profile:"Профиль",nav_themes:"Темы",nav_suggest:"Предложить",
+  nav_settings:"Настройки",nav_chat:"Чат",nav_admin:"Админ",
+  sett_title:"Настройки",sett_animations:"Анимации",sett_sound:"Звук",
+  sett_dark:"Тёмный режим",sett_lang:"Язык",sett_account:"Аккаунт",sett_logout:"Выйти",
+  themeTitle:"Выбрать тему",sugTitle:"Предложить игру",
+  sugPlaceholder1:"Название игры...",sugPlaceholder2:"Описание игры...",sugBtn:"Отправить предложение",
+  stat_coins:"Монеты",stat_favs:"Избранное",stat_played:"Игры",stat_level:"Уровень",
+  loginTitle:"Войти",regTitle:"Регистрация",userLabel:"Имя пользователя",passLabel:"Пароль",
+  userPlaceholder:"ваше имя пользователя...",passPlaceholder:"ваш пароль...",
+  loginBtn:"Войти",regBtn:"Зарегистрироваться",
+  switchToReg:"Нет аккаунта? Зарегистрироваться",switchToLogin:"Есть аккаунт? Войти",
+  noFavs:"Избранных нет\nНажмите ☆ на игру",notLoggedFavs:"Войдите чтобы увидеть избранное",
+  colors_purple:"Фиолетовый",colors_neon:"Неон",colors_gold:"Золотой",
+  colors_red:"Красный",colors_blue:"Синий",colors_pink:"Розовый",online:"онлайн"},
+
+zh:{heroTitle:"雅各布的游戏库",pill_games:"🎮 1,946个游戏",pill_coins:"🏆 收集金币",
+  pill_favs:"⭐ 保存收藏",pill_quests:"📋 完成任务",allGames:"所有游戏",
+  favBtnLabel:"⭐ 收藏",searchPlaceholder:"在1,946个游戏中搜索...",
+  back:"← 返回",fullscreen:"⛶ 全屏",chatTitle:"💬 聊天",
+  chatPlaceholder:"输入消息...",sendBtn:"发送",
+  nav_favs:"收藏",nav_profile:"个人资料",nav_themes:"主题",nav_suggest:"建议",
+  nav_settings:"设置",nav_chat:"聊天",nav_admin:"管理员",
+  sett_title:"设置",sett_animations:"动画",sett_sound:"声音",
+  sett_dark:"深色模式",sett_lang:"语言",sett_account:"账户",sett_logout:"退出登录",
+  themeTitle:"选择主题",sugTitle:"建议游戏",
+  sugPlaceholder1:"游戏名称...",sugPlaceholder2:"描述游戏...",sugBtn:"发送建议",
+  stat_coins:"金币",stat_favs:"收藏",stat_played:"游戏",stat_level:"等级",
+  loginTitle:"登录",regTitle:"注册",userLabel:"用户名",passLabel:"密码",
+  userPlaceholder:"你的用户名...",passPlaceholder:"你的密码...",
+  loginBtn:"登录",regBtn:"注册",
+  switchToReg:"没有账户？注册",switchToLogin:"已有账户？登录",
+  noFavs:"暂无收藏\n点击游戏上的☆",notLoggedFavs:"登录以查看收藏",
+  colors_purple:"紫色",colors_neon:"霓虹",colors_gold:"金色",
+  colors_red:"红色",colors_blue:"蓝色",colors_pink:"粉色",online:"在线"}
+};
+
+function T(key){
+  var lang=(state.settings&&state.settings.lang)||"en";
+  return(LANG[lang]&&LANG[lang][key])||LANG.en[key]||key;
+}
+
+function applyLang(){
+  document.querySelectorAll("[data-i18n]").forEach(function(el){
+    el.textContent=T(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-ph]").forEach(function(el){
+    el.placeholder=T(el.dataset.i18nPh||el.getAttribute("data-i18n-ph"));
+  });
+  // Update login modal dynamic labels
+  var lt=document.getElementById("loginTitle");
+  if(lt)lt.textContent=T("loginTitle");
+}
+// =================== END i18n ===================
