@@ -449,7 +449,6 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
     <button class="sideNavBtn" onclick="closeSidebar();openChat()"><span class="sideNavIcon">💬</span><span class="sideNavLabel" data-i18n="nav_chat">Chat</span></button>
     <button class="sideNavBtn" onclick="closeSidebar();openPanelOverlay('leaderboard')"><span class="sideNavIcon">🏆</span><span class="sideNavLabel">Leaderboard</span></button>
     <button class="sideNavBtn" onclick="closeSidebar();openPanelOverlay('achievements')"><span class="sideNavIcon">🏅</span><span class="sideNavLabel">Achievements</span></button>
-    <button class="sideNavBtn" onclick="openRoadmapPage()"><span class="sideNavIcon">🗺️</span><span class="sideNavLabel">Roadmap</span></button>
     <button class="sideNavBtn" data-tab="discord" onclick="openDiscord()"><span class="sideNavIcon">🟣</span><span class="sideNavLabel">Discord</span></button>
     <button class="sideNavBtn" onclick="openBrowser('browser')"><span class="sideNavIcon">🌐</span><span class="sideNavLabel">Browser</span></button>
     <button class="sideNavBtn" onclick="openBrowser('ai')"><span class="sideNavIcon">🤖</span><span class="sideNavLabel">Jakob AI</span></button>
@@ -660,12 +659,6 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
     <div class="panelBody" id="linksOverlayBody"></div>
   </div>
 </div>
-<div class="panelOverlay" id="roadmapOverlay" onclick="if(event.target===this)closePanelOverlay('roadmap')">
-  <div class="panelWin" style="max-width:620px">
-    <div class="panelHead"><h3>🗺️ Roadmap</h3><button class="closeBtn" onclick="closePanelOverlay('roadmap')">✕</button></div>
-    <div class="panelBody" id="roadmapOverlayBody"></div>
-  </div>
-</div>
 <div class="panelOverlay" id="questsOverlay" onclick="if(event.target===this)closePanelOverlay('quests')">
   <div class="panelWin">
     <div class="panelHead"><h3>📋 Quests</h3><button class="closeBtn" onclick="closePanelOverlay('quests')">✕</button></div>
@@ -739,30 +732,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 
 <script>
 
-/* =======================================================
-   SUPABASE-KONFIGURATION (for konton over enheter)
-   1. Ga till https://supabase.com och skapa ett gratis projekt
-   2. Ga till Project Settings > API
-   3. Kopiera "Project URL" och "anon public" nyckeln hit
-   4. Skapa tabellerna med SQL nedan i Supabase SQL-editorn:
 
-   CREATE TABLE accounts (
-     username TEXT PRIMARY KEY,
-     password_hash TEXT NOT NULL,
-     is_admin BOOLEAN DEFAULT FALSE,
-     banned BOOLEAN DEFAULT FALSE
-   );
-   CREATE TABLE user_data (
-     username TEXT PRIMARY KEY,
-     coins INT DEFAULT 0, xp INT DEFAULT 0, level INT DEFAULT 1,
-     favorites JSONB DEFAULT '[]', games_played INT DEFAULT 0,
-     settings JSONB DEFAULT '{}'
-   );
-   ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
-   ALTER TABLE user_data ENABLE ROW LEVEL SECURITY;
-   CREATE POLICY "public" ON accounts FOR ALL USING (true) WITH CHECK (true);
-   CREATE POLICY "public" ON user_data FOR ALL USING (true) WITH CHECK (true);
-   ======================================================= */
 var SUPABASE_URL="https://vqntfjxscvgzjrydopje.supabase.co";
 var SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxbnRmanhzY3ZnempyeWRvcGplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3NDE4NTAsImV4cCI6MjA4OTMxNzg1MH0.0ZIkeqI6Y_KNapIL5os7xprtN0BJJsQiVCXLV6oHGWI";
 var _sb=null;
@@ -808,7 +778,7 @@ function playKey(){
   }catch(e){}
 }
 
-/* ---- ADMIN-HELPERS ---- */
+
 function getAdminList(){
   var a=JSON.parse(localStorage.getItem("adminUsers")||"[]");
   if(a.indexOf("jakob123")<0)a.push("jakob123");
