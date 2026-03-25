@@ -789,18 +789,19 @@ function adminToggleAdmin(u){
   if(!state.isAdmin)return;
   if(u==="jakob123")return toast("jakob123 ar alltid admin","error");
   var admins=getAdminList(),idx=admins.indexOf(u);
-  if(idx>=0){
-    admins.splice(idx,1);
-    localStorage.setItem("adminUsers",JSON.stringify(admins));
-    if(_sb)_sb.from("accounts").update({is_admin:false}).eq("username",u).then(function(){});
-    toast(u+" ar inte langre admin","ok");
+  var removing=idx>=0;
+  if(removing)admins.splice(idx,1);else admins.push(u);
+  localStorage.setItem("adminUsers",JSON.stringify(admins));
+  if(_sb){
+    _sb.from("accounts").update({is_admin:!removing}).eq("username",u).then(function(r){
+      if(r.error)toast('Supabase-fel: '+r.error.message,'error');
+      else toast(u+(removing?" är inte längre admin":" är nu admin!"),'ok');
+      renderAdminPanel();
+    }).catch(function(e){toast('Fel: '+e.message,'error');renderAdminPanel();});
   }else{
-    admins.push(u);
-    localStorage.setItem("adminUsers",JSON.stringify(admins));
-    if(_sb)_sb.from("accounts").update({is_admin:true}).eq("username",u).then(function(){});
-    toast(u+" ar nu admin!","ok");
+    toast(u+(removing?" är inte längre admin":" är nu admin!"),'ok');
+    renderAdminPanel();
   }
-  renderAdminPanel();
 }
 
 /* ---- DARK/LIGHT MODE ---- */
@@ -2084,7 +2085,7 @@ function submitSuggestion(){
 }
 
 function adminBroadcast(){var msg=document.getElementById('adminBroadcastMsg');if(!msg||!msg.value.trim())return toast('Skriv ett meddelande','error');var txt='📢 '+msg.value.trim();if(_sb){_sb.from('chat_messages').insert({username:'[ADMIN]',text:txt,timestamp:Date.now(),is_admin:true}).then(function(){loadChatMsgs();});}else{var msgs=JSON.parse(localStorage.getItem('globalChat')||'[]');msgs.push({user:'[ADMIN]',text:txt,ts:Date.now(),isAdmin:true});localStorage.setItem('globalChat',JSON.stringify(msgs));}msg.value='';toast('Broadcast skickat!','ok');if(document.getElementById('chatMessages'))loadChatMsgs();}
-function adminGiveCoins(){var uEl=document.getElementById('adminCoinUser');var aEl=document.getElementById('adminCoinAmount');if(!uEl||!aEl||!uEl.value.trim())return toast('Ange ett användarnamn','error');var amount=parseInt(aEl.value)||0;if(amount<=0)return toast('Ange ett giltigt antal mynt','error');if(uEl.value.trim()===state.user){state.coins+=amount;saveState();updateHUD();}else{var key='jspel_'+uEl.value.trim();var data=JSON.parse(localStorage.getItem(key)||'{}');data.coins=(data.coins||0)+amount;localStorage.setItem(key,JSON.stringify(data));}toast(amount+' mynt gavs till '+uEl.value.trim(),'ok');uEl.value='';aEl.value='';renderAdminPanel();}
+function adminGiveCoins(){var uEl=document.getElementById('adminCoinUser');var aEl=document.getElementById('adminCoinAmount');if(!uEl||!aEl||!uEl.value.trim())return toast('Ange ett användarnamn','error');var amount=parseInt(aEl.value)||0;var targetUser=uEl.value.trim();if(amount<=0)return toast('Ange ett giltigt antal mynt','error');if(targetUser===state.user){state.coins+=amount;saveState();updateHUD();toast(amount+' mynt gavs till '+targetUser,'ok');uEl.value='';aEl.value='';renderAdminPanel();}else if(_sb){_sb.from('user_data').select('coins').eq('username',targetUser).single().then(function(res){var cur=(res.data&&res.data.coins)||0;_sb.from('user_data').update({coins:cur+amount}).eq('username',targetUser).then(function(r2){if(r2.error)return toast('Fel: '+r2.error.message,'error');toast(amount+' mynt gavs till '+targetUser,'ok');}).catch(function(e){toast('Fel: '+e.message,'error');});}).catch(function(e){toast('Fel: '+e.message,'error');});uEl.value='';aEl.value='';renderAdminPanel();}else{var key='jspel_'+targetUser;var data=JSON.parse(localStorage.getItem(key)||'{}');data.coins=(data.coins||0)+amount;localStorage.setItem(key,JSON.stringify(data));toast(amount+' mynt gavs till '+targetUser,'ok');uEl.value='';aEl.value='';renderAdminPanel();}}
 function adminKick(u){if(u===state.user)return toast('Kan inte kicka dig själv','error');toast(u+' kickades','ok');}
 function adminBan(u){if(u===state.user)return toast('Kan inte banna dig själv','error');var banned=JSON.parse(localStorage.getItem('bannedUsers')||'[]');if(banned.indexOf(u)<0){banned.push(u);localStorage.setItem('bannedUsers',JSON.stringify(banned));}toast(u+' bannades','ok');renderAdminPanel();}
 function adminUnban(u){var banned=JSON.parse(localStorage.getItem('bannedUsers')||'[]');var idx=banned.indexOf(u);if(idx>=0){banned.splice(idx,1);localStorage.setItem('bannedUsers',JSON.stringify(banned));}toast(u+' avbannades','ok');renderAdminPanel();}
